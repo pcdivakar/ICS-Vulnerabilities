@@ -25,7 +25,7 @@ def load_csv_or_excel(file):
 def create_risk_score(row):
     """Calculate risk score based on CVSS and asset criticality."""
     crit_map = {'low':1, 'medium':2, 'high':3, 'critical':4}
-    factor = crit_map.get(row['criticality'].lower(), 1)
+    factor = crit_map.get(str(row['criticality']).lower(), 1)
     return row['cvss_score'] * factor
 
 # -----------------------------------------------------------------------------
@@ -115,6 +115,14 @@ for col in ['asset_type', 'criticality', 'network_zone']:
 
 # Compute risk score
 merged_df['risk_score'] = merged_df.apply(create_risk_score, axis=1)
+
+# ------------------------------------------------------------
+# CRITICAL FIX: Ensure criticality_factor exists and is numeric
+# ------------------------------------------------------------
+crit_map = {'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
+merged_df['criticality'] = merged_df['criticality'].astype(str).str.lower().fillna('unknown')
+merged_df['criticality_factor'] = merged_df['criticality'].map(crit_map).fillna(1)
+merged_df['criticality_factor'] = pd.to_numeric(merged_df['criticality_factor'], errors='coerce').fillna(1)
 
 # -----------------------------------------------------------------------------
 # Sidebar filters (enhanced)
@@ -343,7 +351,9 @@ with tab3:
                              title="Average Vulnerabilities per Asset by Type")
         st.plotly_chart(fig_density, use_container_width=True)
 
-    # CVSS vs Risk Score scatter
+    # CVSS vs Risk Score scatter (fixed)
+    # Ensure criticality_factor is numeric and available
+    filtered_df['criticality_factor'] = pd.to_numeric(filtered_df['criticality_factor'], errors='coerce').fillna(1)
     fig_cvss_risk = px.scatter(filtered_df, x='cvss_score', y='risk_score',
                                color='severity', size='criticality_factor',
                                hover_data=['cve_id', 'asset_id'],
