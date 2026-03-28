@@ -16,14 +16,17 @@ st.set_page_config(page_title="OT Cybersecurity Dashboard", layout="wide", initi
 st.markdown(
     """
     <style>
+        /* Main background */
         .stApp {
             background-color: #f5f7fa;
             color: #1e2a3a;
         }
+        /* Sidebar */
         .css-1d391kg, .css-163ttbj, .css-1avcm0n {
             background-color: #ffffff;
             border-right: 1px solid #e0e4e8;
         }
+        /* Metric cards */
         .stMetric {
             background-color: #ffffff;
             border-radius: 8px;
@@ -31,6 +34,7 @@ st.markdown(
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
             border-left: 4px solid #00a1ab;
         }
+        /* Buttons */
         .stButton button {
             background-color: #00a1ab;
             color: white;
@@ -41,26 +45,32 @@ st.markdown(
         .stButton button:hover {
             background-color: #00838f;
         }
+        /* Headers */
         h1, h2, h3, h4, h5, h6 {
             color: #1e2a3a;
             font-weight: 500;
         }
+        /* Expander */
         .streamlit-expanderHeader {
             background-color: #f0f2f6;
             color: #1e2a3a;
             border-radius: 4px;
         }
+        /* Dataframe tables */
         .dataframe {
             background-color: #ffffff;
             color: #1e2a3a;
         }
+        /* Success and info messages */
         .stAlert {
             background-color: #e8f0fe;
             color: #1e2a3a;
         }
+        /* Sidebar expander */
         .css-1aumxhk {
             background-color: #f0f2f6;
         }
+        /* Tabs */
         .stTabs [data-baseweb="tab-list"] {
             gap: 24px;
         }
@@ -75,6 +85,7 @@ st.markdown(
             background-color: #00a1ab;
             color: white;
         }
+        /* Plotly charts */
         .js-plotly-plot .plotly .main-svg {
             background-color: #ffffff !important;
         }
@@ -84,9 +95,8 @@ st.markdown(
 )
 
 # -------------------------------
-# Database functions
+# Helper functions for database
 def init_db():
-    """Create tables with correct schema. If tables already exist, this is a no-op."""
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS assets
@@ -132,28 +142,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-def ensure_correct_schema():
-    """Ensure assets table has os and ip_type columns. If missing, recreate all tables."""
-    conn = sqlite3.connect('ot_cyber.db')
-    c = conn.cursor()
-    try:
-        c.execute("PRAGMA table_info(assets)")
-        columns = [col[1] for col in c.fetchall()]
-        if 'os' not in columns or 'ip_type' not in columns:
-            # Drop tables in reverse order of dependency
-            c.execute("DROP TABLE IF EXISTS advisory")
-            c.execute("DROP TABLE IF EXISTS vulnerabilities")
-            c.execute("DROP TABLE IF EXISTS assets")
-            conn.commit()
-            conn.close()
-            init_db()
-        else:
-            conn.close()
-    except Exception:
-        # If assets table doesn't exist, just create it
-        conn.close()
-        init_db()
-
 def clear_all_data():
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
@@ -184,23 +172,6 @@ def load_advisory():
 def save_asset(site, asset_type, vendor, firmware, network_zone, criticality,
                protocol, ip_address, mac_address, location, serial_number, last_seen,
                other_properties, os='', ip_type=''):
-    # Convert None to empty string for text fields
-    site = site if site is not None else ''
-    asset_type = asset_type if asset_type is not None else ''
-    vendor = vendor if vendor is not None else ''
-    firmware = firmware if firmware is not None else ''
-    network_zone = network_zone if network_zone is not None else ''
-    criticality = criticality if criticality is not None else 'Medium'
-    protocol = protocol if protocol is not None else ''
-    ip_address = ip_address if ip_address is not None else ''
-    mac_address = mac_address if mac_address is not None else ''
-    location = location if location is not None else ''
-    serial_number = serial_number if serial_number is not None else ''
-    last_seen = last_seen if last_seen is not None else ''
-    other_properties = other_properties if other_properties is not None else ''
-    os = os if os is not None else ''
-    ip_type = ip_type if ip_type is not None else ''
-
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
     c.execute("""INSERT INTO assets 
@@ -218,16 +189,6 @@ def save_asset(site, asset_type, vendor, firmware, network_zone, criticality,
 
 def save_vulnerability(asset_id, cve_id, cvss_score, exploitability, patch_availability,
                        severity, hostname, port, protocol, plugin_name, vulnerability_title):
-    cve_id = cve_id if cve_id is not None else ''
-    exploitability = exploitability if exploitability is not None else ''
-    patch_availability = patch_availability if patch_availability is not None else ''
-    severity = severity if severity is not None else ''
-    hostname = hostname if hostname is not None else ''
-    port = int(port) if port is not None else None
-    protocol = protocol if protocol is not None else ''
-    plugin_name = plugin_name if plugin_name is not None else ''
-    vulnerability_title = vulnerability_title if vulnerability_title is not None else ''
-
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
     c.execute("""INSERT INTO vulnerabilities 
@@ -240,10 +201,6 @@ def save_vulnerability(asset_id, cve_id, cvss_score, exploitability, patch_avail
     conn.close()
 
 def save_advisory(cve_number, title, cwe, sector):
-    cve_number = cve_number if cve_number is not None else ''
-    title = title if title is not None else ''
-    cwe = cwe if cwe is not None else ''
-    sector = sector if sector is not None else ''
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
     c.execute("""INSERT OR REPLACE INTO advisory 
@@ -290,7 +247,6 @@ def derive_ip_type(ip):
 
 # Initialize database
 init_db()
-ensure_correct_schema()
 
 # -------------------------------
 # Sidebar navigation
@@ -304,6 +260,7 @@ if page == "Dashboard":
     # Deloitte header
     col_logo, col_title = st.columns([1, 3])
     with col_logo:
+        # Use Deloitte logo – you can replace with your own local file or URL
         st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Deloitte.svg/1200px-Deloitte.svg.png", width=80)
     with col_title:
         st.markdown(
@@ -328,6 +285,7 @@ if page == "Dashboard":
     with col3:
         advisory_file = st.file_uploader("📄 Advisory File (CSV/Excel) - Optional", type=["csv", "xlsx"], key="dashboard_advisory")
 
+    # Load files into database (only require asset and vulnerability)
     if vuln_file and asset_file:
         if st.button("Load Files into Database (replaces existing data)"):
             with st.spinner("Loading and importing data..."):
@@ -353,8 +311,6 @@ if page == "Dashboard":
                         ip_type = row['ip_type']
                     else:
                         ip_type = derive_ip_type(ip_address)
-                    # OS column may not exist; default to empty string
-                    os = row.get('os', '') if 'os' in row else ''
                     save_asset(
                         site=row.get('site', ''),
                         asset_type=row.get('asset_type', ''),
@@ -369,7 +325,7 @@ if page == "Dashboard":
                         serial_number=row.get('serial_number', ''),
                         last_seen=row.get('last_seen', datetime.now().strftime("%Y-%m-%d")),
                         other_properties=row.get('other_properties', ''),
-                        os=os,
+                        os=row.get('os', ''),
                         ip_type=ip_type
                     )
 
@@ -448,6 +404,7 @@ if page == "Dashboard":
         vuln_df['infra_sector'] = ''
 
     # Merge vulnerabilities with assets
+    # Use suffixes to avoid column name conflicts
     merged_df = pd.merge(vuln_df, assets_df, left_on='asset_id', right_on='id', how='left', suffixes=('_vuln', '_asset'))
     for col in ['asset_type', 'criticality', 'network_zone']:
         if col not in merged_df.columns:
@@ -463,11 +420,12 @@ if page == "Dashboard":
     merged_df['criticality_factor'] = pd.to_numeric(merged_df['criticality_factor'], errors='coerce').fillna(1)
     merged_df['risk_score'] = pd.to_numeric(merged_df['risk_score'], errors='coerce').fillna(0)
 
-    # Add risk_score to vuln_df
+    # Add risk_score to vuln_df by mapping via vulnerability ID
+    # The vulnerability ID in merged_df is 'id_vuln' (from left side)
     risk_map = merged_df.set_index('id_vuln')['risk_score'].to_dict()
     vuln_df['risk_score'] = vuln_df['id'].map(risk_map).fillna(0)
 
-    # Branding info
+    # Branding info (Data Source, Captured Date, Site Name)
     st.markdown(
         f"""
         <div style="background-color:#ffffff; padding:10px; border-radius:5px; margin-bottom:20px; border:1px solid #e0e4e8;">
@@ -479,11 +437,14 @@ if page == "Dashboard":
         unsafe_allow_html=True
     )
 
-    # TABS
+    # -------------------------------------------------------------------------
+    # TABS: Overview, Asset Analytics, Vulnerability Analytics, Network Map
+    # -------------------------------------------------------------------------
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🏭 Asset Analytics", "🛡️ Vulnerability Analytics", "🌐 Network Map"])
 
     # ---------------------- TAB 1: OVERVIEW ----------------------
     with tab1:
+        # Row 1: KPIs
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             st.metric("Total Assets", len(assets_df))
@@ -496,6 +457,7 @@ if page == "Dashboard":
         with col5:
             st.metric("Total Risk Score", f"{calculate_risk_score(assets_df, vuln_df):.0f}")
 
+        # Row 2: Asset criticality pie + Vulnerability severity pie
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Asset Criticality")
@@ -512,6 +474,7 @@ if page == "Dashboard":
                              color_discrete_sequence=px.colors.qualitative.Pastel)
             st.plotly_chart(fig_sev, use_container_width=True)
 
+        # Row 3: Top 10 CVEs by risk score (horizontal bar)
         st.subheader("Top 10 CVEs by Risk Score")
         top_cves = merged_df.groupby('cve_id')['risk_score'].max().sort_values(ascending=False).head(10).reset_index()
         fig_top = px.bar(top_cves, x='risk_score', y='cve_id', orientation='h',
@@ -519,6 +482,7 @@ if page == "Dashboard":
                          color_continuous_scale='Reds')
         st.plotly_chart(fig_top, use_container_width=True)
 
+        # Row 4: Network zone risk (bar)
         st.subheader("Average Risk Score by Network Zone")
         zone_risk = merged_df.groupby('network_zone')['risk_score'].mean().reset_index()
         if not zone_risk.empty:
@@ -527,6 +491,7 @@ if page == "Dashboard":
                               color_continuous_scale='Viridis')
             st.plotly_chart(fig_zone, use_container_width=True)
 
+        # Row 5: Asset type vs vulnerability count (heatmap)
         st.subheader("Vulnerability Count by Asset Type and Criticality")
         if not merged_df.empty:
             heat_data = merged_df.groupby(['asset_type', 'criticality']).size().reset_index(name='count')
@@ -536,6 +501,7 @@ if page == "Dashboard":
                                  color_continuous_scale="Blues")
             st.plotly_chart(fig_heat, use_container_width=True)
 
+        # Row 6: Timeline (if date column present)
         if 'created_at' in vuln_df.columns:
             st.subheader("Vulnerability Trend Over Time")
             vuln_df['date'] = pd.to_datetime(vuln_df['created_at']).dt.date
@@ -547,6 +513,7 @@ if page == "Dashboard":
     # ---------------------- TAB 2: ASSET ANALYTICS ----------------------
     with tab2:
         st.header("Asset Analytics")
+        # Filters
         col1, col2, col3 = st.columns(3)
         with col1:
             asset_types = assets_df['asset_type'].unique()
@@ -564,6 +531,7 @@ if page == "Dashboard":
             assets_df['criticality'].isin(selected_criticalities)
         ]
 
+        # KPI row
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Filtered Assets", len(filtered_assets))
@@ -572,12 +540,9 @@ if page == "Dashboard":
         with col3:
             st.metric("Unique Protocols", filtered_assets['protocol'].nunique())
         with col4:
-            # OS may be missing; if present, show unique count, else 0
-            if 'os' in filtered_assets:
-                st.metric("Unique OS", filtered_assets['os'].nunique())
-            else:
-                st.metric("Unique OS", 0)
+            st.metric("Unique OS", filtered_assets['os'].nunique() if 'os' in filtered_assets else 0)
 
+        # Row 1: Asset type distribution, Vendor distribution, Protocol distribution
         col1, col2, col3 = st.columns(3)
         with col1:
             st.subheader("Asset Types")
@@ -600,6 +565,7 @@ if page == "Dashboard":
             fig.update_xaxes(tickangle=45)
             st.plotly_chart(fig, use_container_width=True)
 
+        # Row 2: OS distribution (if exists) and IP type distribution
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Operating Systems")
@@ -620,9 +586,11 @@ if page == "Dashboard":
             else:
                 st.info("No IP type data available")
 
+        # Row 3: Asset table with details
         st.subheader("Asset Details")
         st.dataframe(filtered_assets, use_container_width=True)
 
+        # Row 4: Risk heatmap per asset type and criticality (using vulnerabilities)
         if not merged_df.empty:
             st.subheader("Risk Heatmap (Asset Type vs Criticality)")
             risk_heat = merged_df.groupby(['asset_type', 'criticality'])['risk_score'].mean().reset_index()
@@ -635,6 +603,7 @@ if page == "Dashboard":
     # ---------------------- TAB 3: VULNERABILITY ANALYTICS ----------------------
     with tab3:
         st.header("Vulnerability Analytics")
+        # Filters
         col1, col2, col3 = st.columns(3)
         with col1:
             severities = vuln_df['severity'].unique()
@@ -652,6 +621,7 @@ if page == "Dashboard":
             vuln_df['patch_availability'].isin(selected_patch)
         ]
 
+        # KPI row
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Filtered Vulnerabilities", len(filtered_vulns))
@@ -660,6 +630,7 @@ if page == "Dashboard":
         with col3:
             st.metric("Unique CVEs", filtered_vulns['cve_id'].nunique())
 
+        # Row 1: CVSS distribution, Exploitability pie, Patch availability pie
         col1, col2, col3 = st.columns(3)
         with col1:
             st.subheader("CVSS Score Distribution")
@@ -679,6 +650,7 @@ if page == "Dashboard":
                          title="Patch Status", color_discrete_sequence=px.colors.sequential.Plasma)
             st.plotly_chart(fig, use_container_width=True)
 
+        # Row 2: Top CVEs by asset count, top CVEs by risk score
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Top CVEs by Affected Assets")
@@ -690,6 +662,7 @@ if page == "Dashboard":
             st.plotly_chart(fig, use_container_width=True)
         with col2:
             st.subheader("Top CVEs by Risk Score")
+            # Use risk_score from vuln_df (already computed)
             cve_risk = filtered_vulns.groupby('cve_id')['risk_score'].mean().sort_values(ascending=False).head(10).reset_index()
             cve_risk.columns = ['CVE', 'Avg Risk Score']
             fig = px.bar(cve_risk, x='CVE', y='Avg Risk Score', title="Highest Risk CVEs",
@@ -697,6 +670,7 @@ if page == "Dashboard":
             fig.update_xaxes(tickangle=45)
             st.plotly_chart(fig, use_container_width=True)
 
+        # Row 3: CWE distribution (if available)
         if 'cwe' in filtered_vulns.columns and not filtered_vulns['cwe'].isna().all():
             st.subheader("Top CWEs")
             cwe_counts = filtered_vulns['cwe'].value_counts().head(15).reset_index()
@@ -706,6 +680,7 @@ if page == "Dashboard":
             fig.update_xaxes(tickangle=45)
             st.plotly_chart(fig, use_container_width=True)
 
+        # Row 4: Vulnerability details table
         st.subheader("Vulnerability Details")
         st.dataframe(filtered_vulns[['cve_id', 'cvss_score', 'severity', 'exploitability', 'patch_availability', 'asset_id', 'hostname', 'risk_score']],
                      use_container_width=True)
@@ -715,17 +690,29 @@ if page == "Dashboard":
         st.header("Network Map")
         st.markdown("Drag nodes to rearrange. Use the sidebar to add assets to groups and define VLANs.")
 
+        # Create a list of assets with IP addresses
         assets_with_ip = assets_df[assets_df['ip_address'].notna() & (assets_df['ip_address'] != '')].copy()
         if assets_with_ip.empty:
             st.warning("No assets with IP addresses found. Please upload asset data containing IP addresses.")
         else:
+            # Build a graph from IP relationships (simple: connect assets if they share same VLAN)
+            # We'll allow user to group assets manually in sidebar, but also auto-group by network zone.
+            # Let's create an interactive network graph using Plotly's scatter plot with annotations (nodes)
+            # and edges. We'll use networkx to compute positions and then plot.
+
+            # For simplicity, we'll create a graph where each asset is a node, and edges represent "connected" if they are in the same network zone.
+            # Users can also add custom connections via a form.
+
+            # Let's load current groups/VLANs from session state
             if 'groups' not in st.session_state:
                 st.session_state.groups = {}
             if 'connections' not in st.session_state:
-                st.session_state.connections = []
+                st.session_state.connections = []  # list of (source, target)
 
+            # Sidebar for grouping and connections (inside the tab, because sidebar is already used for navigation)
             with st.expander("Network Map Controls", expanded=True):
                 st.subheader("Group Assets by VLAN")
+                # List unique network zones
                 zones = assets_with_ip['network_zone'].unique()
                 selected_zone = st.selectbox("Select Network Zone to group", zones)
                 if st.button(f"Group assets in {selected_zone}"):
@@ -752,6 +739,7 @@ if page == "Dashboard":
                     st.session_state.groups = {}
                     st.success("All groups cleared")
 
+            # Build graph
             G = nx.Graph()
             for _, row in assets_with_ip.iterrows():
                 node_id = row['id']
@@ -762,14 +750,18 @@ if page == "Dashboard":
             for src, tgt in st.session_state.connections:
                 G.add_edge(src, tgt)
 
+            # Also auto-connect assets that share the same network zone (optional)
+            # To avoid too many edges, we'll add edges only between assets in the same zone
             for zone in zones:
                 zone_assets = assets_with_ip[assets_with_ip['network_zone'] == zone]['id'].tolist()
                 for i in range(len(zone_assets)):
                     for j in range(i+1, len(zone_assets)):
                         G.add_edge(zone_assets[i], zone_assets[j])
 
+            # Generate positions (spring layout)
             pos = nx.spring_layout(G, seed=42, k=2, iterations=50)
 
+            # Create Plotly figure
             edge_trace = []
             for edge in G.edges():
                 x0, y0 = pos[edge[0]]
@@ -780,12 +772,16 @@ if page == "Dashboard":
                     hoverinfo='none', showlegend=False
                 ))
 
-            node_x, node_y, node_text, node_color = [], [], [], []
+            node_x = []
+            node_y = []
+            node_text = []
+            node_color = []
             for node in G.nodes():
                 x, y = pos[node]
                 node_x.append(x)
                 node_y.append(y)
                 node_text.append(G.nodes[node]['label'])
+                # Color by criticality
                 crit = G.nodes[node]['criticality']
                 if crit == 'Critical':
                     node_color.append('#e74c3c')
@@ -821,6 +817,7 @@ if page == "Dashboard":
                             ))
             st.plotly_chart(fig, use_container_width=True)
 
+            # Display current groups
             st.subheader("Current Groups (VLANs)")
             groups_df = pd.DataFrame([(k, v) for k, v in st.session_state.groups.items()], columns=['Asset ID', 'Group'])
             if not groups_df.empty:
@@ -829,10 +826,11 @@ if page == "Dashboard":
                 st.info("No groups defined yet. Use the controls above to create VLAN groups.")
 
 # -----------------------------------------------------------------------------
-# ASSETS MANAGEMENT (unchanged except minor)
+# ASSETS MANAGEMENT
 # -----------------------------------------------------------------------------
 elif page == "Assets Management":
     st.title("Manage OT Assets")
+    
     with st.expander("Add New Asset"):
         with st.form("add_asset_form"):
             col1, col2 = st.columns(2)
@@ -864,6 +862,7 @@ elif page == "Assets Management":
                     st.success(f"Asset added with ID {asset_id}")
                 else:
                     st.error("Site, Asset Type, Vendor and Protocol are required.")
+    
     st.subheader("Existing Assets")
     assets_df = load_assets()
     if not assets_df.empty:
@@ -876,10 +875,11 @@ elif page == "Assets Management":
         st.info("No assets found.")
 
 # -----------------------------------------------------------------------------
-# VULNERABILITIES MANAGEMENT (unchanged)
+# VULNERABILITIES MANAGEMENT
 # -----------------------------------------------------------------------------
 elif page == "Vulnerabilities Management":
     st.title("Manage Vulnerabilities")
+    
     assets_df = load_assets()
     if assets_df.empty:
         st.warning("Please add assets before adding vulnerabilities.")
@@ -905,6 +905,7 @@ elif page == "Vulnerabilities Management":
                     st.success("Vulnerability added.")
                 elif not cve_id:
                     st.error("CVE ID is required.")
+    
     st.subheader("Existing Vulnerabilities")
     vuln_df = load_vulnerabilities()
     if not vuln_df.empty:
@@ -914,7 +915,7 @@ elif page == "Vulnerabilities Management":
         st.info("No vulnerabilities found.")
 
 # -----------------------------------------------------------------------------
-# ADVISORY DATA (unchanged)
+# ADVISORY DATA
 # -----------------------------------------------------------------------------
 elif page == "Advisory Data":
     st.title("Manage Advisory Data (CVE Mappings)")
@@ -970,7 +971,7 @@ elif page == "Advisory Data":
             st.error(f"Error reading file: {e}")
 
 # -----------------------------------------------------------------------------
-# IMPORT DATA (unchanged)
+# IMPORT DATA
 # -----------------------------------------------------------------------------
 elif page == "Import Data":
     st.title("Import Data from Files")
@@ -1052,7 +1053,6 @@ elif page == "Import Data":
                         ip_type = row['ip_type']
                     else:
                         ip_type = derive_ip_type(ip_address)
-                    os = row.get('os', '') if 'os' in row else ''
                     save_asset(
                         site=row.get('site', ''),
                         asset_type=row.get('asset_type', ''),
@@ -1067,7 +1067,7 @@ elif page == "Import Data":
                         serial_number=row.get('serial_number', ''),
                         last_seen=row.get('last_seen', datetime.now().strftime("%Y-%m-%d")),
                         other_properties=row.get('other_properties', ''),
-                        os=os,
+                        os=row.get('os', ''),
                         ip_type=ip_type
                     )
                 st.success(f"Imported {len(df_asset)} assets.")
@@ -1135,7 +1135,7 @@ elif page == "Import Data":
             st.error(f"Error reading advisory file: {e}")
 
 # -----------------------------------------------------------------------------
-# EXPORT DATA (unchanged)
+# EXPORT DATA
 # -----------------------------------------------------------------------------
 elif page == "Export Data":
     st.title("Export Data")
