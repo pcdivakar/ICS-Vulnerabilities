@@ -142,6 +142,29 @@ def init_db():
     conn.commit()
     conn.close()
 
+def upgrade_schema():
+    """Add missing columns (os, ip_type) to assets table. If missing, drop and recreate tables."""
+    conn = sqlite3.connect('ot_cyber.db')
+    c = conn.cursor()
+    try:
+        c.execute("PRAGMA table_info(assets)")
+        columns = [col[1] for col in c.fetchall()]
+        if 'os' not in columns or 'ip_type' not in columns:
+            # Drop tables in reverse order of dependency
+            c.execute("DROP TABLE IF EXISTS advisory")
+            c.execute("DROP TABLE IF EXISTS vulnerabilities")
+            c.execute("DROP TABLE IF EXISTS assets")
+            conn.commit()
+            conn.close()
+            # Recreate with correct schema
+            init_db()
+        else:
+            conn.close()
+    except Exception:
+        # If assets table doesn't exist, just recreate
+        conn.close()
+        init_db()
+
 def clear_all_data():
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
@@ -172,6 +195,23 @@ def load_advisory():
 def save_asset(site, asset_type, vendor, firmware, network_zone, criticality,
                protocol, ip_address, mac_address, location, serial_number, last_seen,
                other_properties, os='', ip_type=''):
+    # Convert None to empty string for text fields
+    site = site if site is not None else ''
+    asset_type = asset_type if asset_type is not None else ''
+    vendor = vendor if vendor is not None else ''
+    firmware = firmware if firmware is not None else ''
+    network_zone = network_zone if network_zone is not None else ''
+    criticality = criticality if criticality is not None else 'Medium'
+    protocol = protocol if protocol is not None else ''
+    ip_address = ip_address if ip_address is not None else ''
+    mac_address = mac_address if mac_address is not None else ''
+    location = location if location is not None else ''
+    serial_number = serial_number if serial_number is not None else ''
+    last_seen = last_seen if last_seen is not None else ''
+    other_properties = other_properties if other_properties is not None else ''
+    os = os if os is not None else ''
+    ip_type = ip_type if ip_type is not None else ''
+
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
     c.execute("""INSERT INTO assets 
@@ -189,6 +229,17 @@ def save_asset(site, asset_type, vendor, firmware, network_zone, criticality,
 
 def save_vulnerability(asset_id, cve_id, cvss_score, exploitability, patch_availability,
                        severity, hostname, port, protocol, plugin_name, vulnerability_title):
+    # Convert None to default values
+    cve_id = cve_id if cve_id is not None else ''
+    exploitability = exploitability if exploitability is not None else ''
+    patch_availability = patch_availability if patch_availability is not None else ''
+    severity = severity if severity is not None else ''
+    hostname = hostname if hostname is not None else ''
+    port = int(port) if port is not None else None
+    protocol = protocol if protocol is not None else ''
+    plugin_name = plugin_name if plugin_name is not None else ''
+    vulnerability_title = vulnerability_title if vulnerability_title is not None else ''
+
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
     c.execute("""INSERT INTO vulnerabilities 
@@ -201,6 +252,10 @@ def save_vulnerability(asset_id, cve_id, cvss_score, exploitability, patch_avail
     conn.close()
 
 def save_advisory(cve_number, title, cwe, sector):
+    cve_number = cve_number if cve_number is not None else ''
+    title = title if title is not None else ''
+    cwe = cwe if cwe is not None else ''
+    sector = sector if sector is not None else ''
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
     c.execute("""INSERT OR REPLACE INTO advisory 
@@ -245,8 +300,9 @@ def derive_ip_type(ip):
     else:
         return 'IPv4'
 
-# Initialize database
+# Initialize database and upgrade schema
 init_db()
+upgrade_schema()
 
 # -------------------------------
 # Sidebar navigation
