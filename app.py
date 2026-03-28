@@ -404,7 +404,8 @@ if page == "Dashboard":
         vuln_df['infra_sector'] = ''
 
     # Merge vulnerabilities with assets
-    merged_df = pd.merge(vuln_df, assets_df, left_on='asset_id', right_on='id', how='left')
+    # Use suffixes to avoid column name conflicts
+    merged_df = pd.merge(vuln_df, assets_df, left_on='asset_id', right_on='id', how='left', suffixes=('_vuln', '_asset'))
     for col in ['asset_type', 'criticality', 'network_zone']:
         if col not in merged_df.columns:
             merged_df[col] = 'Unknown'
@@ -419,8 +420,9 @@ if page == "Dashboard":
     merged_df['criticality_factor'] = pd.to_numeric(merged_df['criticality_factor'], errors='coerce').fillna(1)
     merged_df['risk_score'] = pd.to_numeric(merged_df['risk_score'], errors='coerce').fillna(0)
 
-    # Also add risk_score to vuln_df (for vulnerability analytics)
-    risk_map = merged_df.set_index('id')['risk_score'].to_dict()
+    # Add risk_score to vuln_df by mapping via vulnerability ID
+    # The vulnerability ID in merged_df is 'id_vuln' (from left side)
+    risk_map = merged_df.set_index('id_vuln')['risk_score'].to_dict()
     vuln_df['risk_score'] = vuln_df['id'].map(risk_map).fillna(0)
 
     # Branding info (Data Source, Captured Date, Site Name)
