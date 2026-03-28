@@ -76,7 +76,12 @@ vuln_df['cvss_score'] = pd.to_numeric(vuln_df['cvss_score'], errors='coerce')
 
 # Merge advisory CVE details into vulnerabilities (enrich with advisory fields)
 # We'll use the advisory CVE number to match cve_id
-advisory_cve_map = advisory_df.set_index('cve_number')[['ics-cert_advisory_title', 'cwe_number', 'critical_infrastructure_sector']].to_dict('index')
+# FIX: Handle duplicate CVE numbers by dropping duplicates before building the dictionary
+advisory_unique = advisory_df.drop_duplicates(subset='cve_number', keep='first')
+advisory_cve_map = (advisory_unique
+                    .set_index('cve_number')[['ics-cert_advisory_title', 'cwe_number', 'critical_infrastructure_sector']]
+                    .to_dict('index'))
+
 # Add columns to vuln_df from advisory if cve_id matches
 def enrich_vuln(row):
     cve = row['cve_id']
