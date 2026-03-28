@@ -6,32 +6,32 @@ import sqlite3
 from datetime import datetime
 import numpy as np
 import networkx as nx
-from plotly.subplots import make_subplots
 
 # -------------------------------
 # Page configuration
-st.set_page_config(page_title="OT Cybersecurity Dashboard", layout="wide")
+st.set_page_config(page_title="OT Cybersecurity Dashboard", layout="wide", initial_sidebar_state="expanded")
 
 # -------------------------------
-# Custom CSS for Deloitte dark theme with vibrant accents
+# Custom CSS for Deloitte light theme
 st.markdown(
     """
     <style>
         /* Main background */
         .stApp {
-            background-color: #0e1117;
-            color: #e5e5e5;
+            background-color: #f5f7fa;
+            color: #1e2a3a;
         }
         /* Sidebar */
         .css-1d391kg, .css-163ttbj, .css-1avcm0n {
-            background-color: #1e1e2f;
+            background-color: #ffffff;
+            border-right: 1px solid #e0e4e8;
         }
         /* Metric cards */
         .stMetric {
-            background-color: #2c2c3a;
-            border-radius: 10px;
-            padding: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
             border-left: 4px solid #00a1ab;
         }
         /* Buttons */
@@ -39,7 +39,7 @@ st.markdown(
             background-color: #00a1ab;
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 4px;
             transition: 0.2s;
         }
         .stButton button:hover {
@@ -47,40 +47,47 @@ st.markdown(
         }
         /* Headers */
         h1, h2, h3, h4, h5, h6 {
-            color: #ffffff;
+            color: #1e2a3a;
+            font-weight: 500;
         }
         /* Expander */
         .streamlit-expanderHeader {
-            background-color: #2c2c3a;
-            color: #ffffff;
+            background-color: #f0f2f6;
+            color: #1e2a3a;
+            border-radius: 4px;
         }
         /* Dataframe tables */
         .dataframe {
-            background-color: #2c2c3a;
-            color: #e5e5e5;
+            background-color: #ffffff;
+            color: #1e2a3a;
         }
         /* Success and info messages */
         .stAlert {
-            background-color: #2c2c3a;
-            color: #e5e5e5;
+            background-color: #e8f0fe;
+            color: #1e2a3a;
         }
         /* Sidebar expander */
         .css-1aumxhk {
-            background-color: #2c2c3a;
+            background-color: #f0f2f6;
         }
         /* Tabs */
         .stTabs [data-baseweb="tab-list"] {
             gap: 24px;
         }
         .stTabs [data-baseweb="tab"] {
-            background-color: #1e1e2f;
-            border-radius: 5px 5px 0 0;
+            background-color: #ffffff;
+            border-radius: 4px 4px 0 0;
             padding: 10px 20px;
-            font-weight: bold;
+            font-weight: 500;
+            color: #4a627a;
         }
         .stTabs [aria-selected="true"] {
             background-color: #00a1ab;
             color: white;
+        }
+        /* Plotly charts */
+        .js-plotly-plot .plotly .main-svg {
+            background-color: #ffffff !important;
         }
     </style>
     """,
@@ -88,7 +95,7 @@ st.markdown(
 )
 
 # -------------------------------
-# Helper functions for database (unchanged, but added derive_ip_type)
+# Helper functions for database
 def init_db():
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
@@ -247,19 +254,20 @@ st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["Dashboard", "Assets Management", "Vulnerabilities Management", "Advisory Data", "Import Data", "Export Data"])
 
 # -----------------------------------------------------------------------------
-# DASHBOARD PAGE (with multiple tabs)
+# DASHBOARD PAGE
 # -----------------------------------------------------------------------------
 if page == "Dashboard":
     # Deloitte header
     col_logo, col_title = st.columns([1, 3])
     with col_logo:
+        # Use Deloitte logo – you can replace with your own local file or URL
         st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Deloitte.svg/1200px-Deloitte.svg.png", width=80)
     with col_title:
         st.markdown(
             """
-            <div style="background-color: #0e1117; padding: 10px;">
-            <h1 style="color: #ffffff; margin:0;">OT Cybersecurity Risk Assessment Dashboard</h1>
-            <p style="color: #cccccc;">Powered by Deloitte – Advanced Risk Analytics</p>
+            <div style="background-color: #f5f7fa; padding: 10px;">
+            <h1 style="color: #1e2a3a; margin:0;">OT Cybersecurity Risk Assessment Dashboard</h1>
+            <p style="color: #4a627a;">Powered by Deloitte – Advanced Risk Analytics</p>
             </div>
             """,
             unsafe_allow_html=True
@@ -403,7 +411,7 @@ if page == "Dashboard":
         else:
             merged_df[col] = merged_df[col].fillna('Unknown')
 
-    # Compute risk score
+    # Compute risk score (CVSS * criticality factor)
     crit_map = {'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
     merged_df['criticality'] = merged_df['criticality'].astype(str).str.lower().fillna('unknown')
     merged_df['criticality_factor'] = merged_df['criticality'].map(crit_map).fillna(1)
@@ -411,10 +419,14 @@ if page == "Dashboard":
     merged_df['criticality_factor'] = pd.to_numeric(merged_df['criticality_factor'], errors='coerce').fillna(1)
     merged_df['risk_score'] = pd.to_numeric(merged_df['risk_score'], errors='coerce').fillna(0)
 
+    # Also add risk_score to vuln_df (for vulnerability analytics)
+    risk_map = merged_df.set_index('id')['risk_score'].to_dict()
+    vuln_df['risk_score'] = vuln_df['id'].map(risk_map).fillna(0)
+
     # Branding info (Data Source, Captured Date, Site Name)
     st.markdown(
         f"""
-        <div style="background-color:#1e1e2f; padding:10px; border-radius:5px; margin-bottom:20px;">
+        <div style="background-color:#ffffff; padding:10px; border-radius:5px; margin-bottom:20px; border:1px solid #e0e4e8;">
         <b>Data Source:</b> Asset & Vulnerability Files (Advisory optional)<br>
         <b>Captured Date:</b> {datetime.now().strftime("%Y-%m-%d %H:%M")}<br>
         <b>Site Name:</b> {assets_df['site'].iloc[0] if not assets_df.empty else 'N/A'}
@@ -450,14 +462,14 @@ if page == "Dashboard":
             crit_counts = assets_df['criticality'].value_counts().reset_index()
             crit_counts.columns = ['Criticality', 'Count']
             fig_crit = px.pie(crit_counts, values='Count', names='Criticality', hole=0.3,
-                              color_discrete_sequence=px.colors.sequential.RdBu)
+                              color_discrete_sequence=px.colors.qualitative.Set3)
             st.plotly_chart(fig_crit, use_container_width=True)
         with col2:
             st.subheader("Vulnerability Severity")
             sev_counts = vuln_df['severity'].value_counts().reset_index()
             sev_counts.columns = ['Severity', 'Count']
             fig_sev = px.pie(sev_counts, values='Count', names='Severity', hole=0.3,
-                             color_discrete_sequence=px.colors.sequential.Plasma)
+                             color_discrete_sequence=px.colors.qualitative.Pastel)
             st.plotly_chart(fig_sev, use_container_width=True)
 
         # Row 3: Top 10 CVEs by risk score (horizontal bar)
@@ -648,6 +660,7 @@ if page == "Dashboard":
             st.plotly_chart(fig, use_container_width=True)
         with col2:
             st.subheader("Top CVEs by Risk Score")
+            # Use risk_score from vuln_df (already computed)
             cve_risk = filtered_vulns.groupby('cve_id')['risk_score'].mean().sort_values(ascending=False).head(10).reset_index()
             cve_risk.columns = ['CVE', 'Avg Risk Score']
             fig = px.bar(cve_risk, x='CVE', y='Avg Risk Score', title="Highest Risk CVEs",
@@ -667,7 +680,7 @@ if page == "Dashboard":
 
         # Row 4: Vulnerability details table
         st.subheader("Vulnerability Details")
-        st.dataframe(filtered_vulns[['cve_id', 'cvss_score', 'severity', 'exploitability', 'patch_availability', 'asset_id', 'hostname']],
+        st.dataframe(filtered_vulns[['cve_id', 'cvss_score', 'severity', 'exploitability', 'patch_availability', 'asset_id', 'hostname', 'risk_score']],
                      use_container_width=True)
 
     # ---------------------- TAB 4: NETWORK MAP ----------------------
@@ -694,8 +707,8 @@ if page == "Dashboard":
             if 'connections' not in st.session_state:
                 st.session_state.connections = []  # list of (source, target)
 
-            # Sidebar for grouping and connections
-            with st.sidebar.expander("Network Map Controls", expanded=True):
+            # Sidebar for grouping and connections (inside the tab, because sidebar is already used for navigation)
+            with st.expander("Network Map Controls", expanded=True):
                 st.subheader("Group Assets by VLAN")
                 # List unique network zones
                 zones = assets_with_ip['network_zone'].unique()
@@ -796,9 +809,9 @@ if page == "Dashboard":
                                 margin=dict(b=20, l=5, r=5, t=40),
                                 xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                                 yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                plot_bgcolor='#1e1e2f',
-                                paper_bgcolor='#1e1e2f',
-                                font=dict(color='white')
+                                plot_bgcolor='#f5f7fa',
+                                paper_bgcolor='#f5f7fa',
+                                font=dict(color='#1e2a3a')
                             ))
             st.plotly_chart(fig, use_container_width=True)
 
@@ -808,10 +821,341 @@ if page == "Dashboard":
             if not groups_df.empty:
                 st.dataframe(groups_df)
             else:
-                st.info("No groups defined yet. Use the sidebar to create VLAN groups.")
+                st.info("No groups defined yet. Use the controls above to create VLAN groups.")
 
 # -----------------------------------------------------------------------------
-# The remaining pages (Assets Management, Vulnerabilities Management, Advisory Data, Import Data, Export Data) are unchanged.
-# They are included below for completeness but not shown here for brevity.
-# Please refer to the previous version for their implementation.
+# ASSETS MANAGEMENT
 # -----------------------------------------------------------------------------
+elif page == "Assets Management":
+    st.title("Manage OT Assets")
+    
+    with st.expander("Add New Asset"):
+        with st.form("add_asset_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                site = st.text_input("Site *", help="Required")
+                asset_type = st.text_input("Asset Type *", help="Required")
+                vendor = st.text_input("Vendor *", help="Required")
+                firmware = st.text_input("Firmware Version")
+                network_zone = st.text_input("Network Zone")
+                criticality = st.selectbox("Criticality", ["Low", "Medium", "High", "Critical"])
+                protocol = st.text_input("Protocol *", help="Required")
+                os = st.text_input("Operating System")
+            with col2:
+                ip_address = st.text_input("IP Address")
+                ip_type = st.selectbox("IP Type", ["", "IPv4", "IPv6", "Private", "Public"], help="Optional: select or leave empty to auto‑detect")
+                mac_address = st.text_input("MAC Address")
+                location = st.text_input("Location")
+                serial_number = st.text_input("Serial Number")
+                last_seen = st.date_input("Last Seen", value=datetime.now().date())
+            other_properties = st.text_area("Other Properties (JSON or text)")
+            submitted = st.form_submit_button("Add Asset")
+            if submitted:
+                if site and asset_type and vendor and protocol:
+                    final_ip_type = ip_type if ip_type else derive_ip_type(ip_address)
+                    asset_id = save_asset(site, asset_type, vendor, firmware, network_zone, criticality,
+                                          protocol, ip_address, mac_address, location, serial_number,
+                                          last_seen.strftime("%Y-%m-%d"), other_properties,
+                                          os=os, ip_type=final_ip_type)
+                    st.success(f"Asset added with ID {asset_id}")
+                else:
+                    st.error("Site, Asset Type, Vendor and Protocol are required.")
+    
+    st.subheader("Existing Assets")
+    assets_df = load_assets()
+    if not assets_df.empty:
+        st.dataframe(assets_df)
+        if st.button("Delete All Assets"):
+            delete_all_assets()
+            st.warning("All assets and related vulnerabilities deleted.")
+            st.rerun()
+    else:
+        st.info("No assets found.")
+
+# -----------------------------------------------------------------------------
+# VULNERABILITIES MANAGEMENT
+# -----------------------------------------------------------------------------
+elif page == "Vulnerabilities Management":
+    st.title("Manage Vulnerabilities")
+    
+    assets_df = load_assets()
+    if assets_df.empty:
+        st.warning("Please add assets before adding vulnerabilities.")
+    else:
+        with st.expander("Add New Vulnerability"):
+            with st.form("add_vuln_form"):
+                asset_id = st.selectbox("Select Asset", options=assets_df['id'].tolist(),
+                                        format_func=lambda x: f"{x} - {assets_df[assets_df['id']==x]['site'].values[0]} - {assets_df[assets_df['id']==x]['asset_type'].values[0]}")
+                cve_id = st.text_input("CVE ID *")
+                cvss_score = st.number_input("CVSS Score", min_value=0.0, max_value=10.0, step=0.1)
+                exploitability = st.selectbox("Exploitability", ["None", "Proof-of-Concept", "Functional", "High"])
+                patch_availability = st.selectbox("Patch Availability", ["Available", "Not Available", "Workaround"])
+                severity = st.selectbox("Severity", ["Info", "Low", "Medium", "High", "Critical"])
+                hostname = st.text_input("Hostname / IP")
+                port = st.number_input("Port", min_value=0, max_value=65535, step=1)
+                protocol = st.text_input("Protocol")
+                plugin_name = st.text_input("Plugin Name")
+                vulnerability_title = st.text_input("Vulnerability Title")
+                submitted = st.form_submit_button("Add Vulnerability")
+                if submitted and cve_id:
+                    save_vulnerability(asset_id, cve_id, cvss_score, exploitability, patch_availability,
+                                      severity, hostname, port, protocol, plugin_name, vulnerability_title)
+                    st.success("Vulnerability added.")
+                elif not cve_id:
+                    st.error("CVE ID is required.")
+    
+    st.subheader("Existing Vulnerabilities")
+    vuln_df = load_vulnerabilities()
+    if not vuln_df.empty:
+        merged = pd.merge(vuln_df, assets_df, left_on='asset_id', right_on='id', how='left')
+        st.dataframe(merged)
+    else:
+        st.info("No vulnerabilities found.")
+
+# -----------------------------------------------------------------------------
+# ADVISORY DATA
+# -----------------------------------------------------------------------------
+elif page == "Advisory Data":
+    st.title("Manage Advisory Data (CVE Mappings)")
+    st.markdown("Upload or manually add CVE advisory information (title, CWE, infrastructure sector).")
+
+    with st.expander("Add/Update Advisory Entry"):
+        with st.form("add_advisory_form"):
+            cve_number = st.text_input("CVE Number *", help="e.g., CVE-2024-12345")
+            title = st.text_input("ICS-CERT Advisory Title")
+            cwe = st.text_input("CWE Number")
+            sector = st.text_input("Critical Infrastructure Sector")
+            submitted = st.form_submit_button("Save Advisory")
+            if submitted and cve_number:
+                save_advisory(cve_number, title, cwe, sector)
+                st.success(f"Advisory for {cve_number} saved.")
+            elif not cve_number:
+                st.error("CVE Number is required.")
+
+    st.subheader("Existing Advisory Data")
+    advisory_df = load_advisory()
+    if not advisory_df.empty:
+        st.dataframe(advisory_df)
+        if st.button("Delete All Advisory Data"):
+            delete_all_advisory()
+            st.warning("All advisory data deleted.")
+            st.rerun()
+    else:
+        st.info("No advisory data found. You can import from CSV below or add manually.")
+
+    st.markdown("---")
+    st.subheader("Import Advisory Data from CSV/Excel")
+    advisory_file = st.file_uploader("Upload Advisory CSV/Excel", type=["csv", "xlsx"])
+    if advisory_file is not None:
+        try:
+            if advisory_file.name.endswith('.csv'):
+                df_adv = pd.read_csv(advisory_file)
+            else:
+                df_adv = pd.read_excel(advisory_file)
+            required_cols = ['cve_number']
+            missing = [col for col in required_cols if col not in df_adv.columns]
+            if missing:
+                st.error(f"Missing required columns: {missing}")
+            else:
+                for _, row in df_adv.iterrows():
+                    cve = row['cve_number']
+                    title = row.get('ics-cert_advisory_title', '')
+                    cwe = row.get('cwe_number', '')
+                    sector = row.get('critical_infrastructure_sector', '')
+                    save_advisory(cve, title, cwe, sector)
+                st.success(f"Imported {len(df_adv)} advisory entries.")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+
+# -----------------------------------------------------------------------------
+# IMPORT DATA
+# -----------------------------------------------------------------------------
+elif page == "Import Data":
+    st.title("Import Data from Files")
+    st.markdown("Use the standard templates below to import assets, vulnerabilities, and advisory data into the database.")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.subheader("Assets Template")
+        asset_template = pd.DataFrame({
+            "site": ["Refinery A", "Refinery A", "Power Plant B"],
+            "asset_type": ["PLC", "RTU", "HMI"],
+            "vendor": ["Siemens", "Rockwell", "Schneider"],
+            "firmware": ["v4.2", "v2.0", "v3.1"],
+            "network_zone": ["Level 1", "Level 2", "Level 0"],
+            "criticality": ["Critical", "High", "Medium"],
+            "protocol": ["Modbus/TCP", "DNP3", "OPC DA"],
+            "ip_address": ["192.168.1.10", "10.0.0.5", "172.16.0.20"],
+            "mac_address": ["00:1A:2B:3C:4D:5E", "AA:BB:CC:DD:EE:FF", "11:22:33:44:55:66"],
+            "location": ["Main Control Room", "Field Station 3", "Control Room East"],
+            "serial_number": ["SN-12345", "SN-67890", "SN-112233"],
+            "last_seen": ["2025-03-27", "2025-03-26", "2025-03-27"],
+            "other_properties": ["{\"protocol\": \"Modbus\"}", "{\"protocol\": \"DNP3\"}", "{\"touchscreen\": true}"],
+            "os": ["Windows 10", "Linux", "VxWorks"],
+            "ip_type": ["IPv4", "IPv4", "IPv4"]
+        })
+        st.dataframe(asset_template)
+        csv_asset = asset_template.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Assets CSV", csv_asset, "assets_template.csv", "text/csv")
+
+    with col2:
+        st.subheader("Vulnerabilities Template")
+        vuln_template = pd.DataFrame({
+            "asset_id": [1, 1, 2, 3],
+            "cve_id": ["CVE-2024-12345", "CVE-2024-67890", "CVE-2023-45678", "CVE-2025-0001"],
+            "cvss_score": [7.5, 9.0, 4.3, 8.2],
+            "exploitability": ["Functional", "High", "Proof-of-Concept", "Functional"],
+            "patch_availability": ["Not Available", "Workaround", "Available", "Not Available"],
+            "severity": ["High", "Critical", "Medium", "High"],
+            "hostname": ["192.168.1.10", "192.168.1.10", "10.0.0.5", "172.16.0.20"],
+            "port": [443, 22, 161, 80],
+            "protocol": ["tcp", "tcp", "udp", "tcp"],
+            "plugin_name": ["SSL/TLS RC4 Cipher Suites Supported", "SSH Weak Algorithms Supported", "SNMP Community String Default", "Open Port Scan"],
+            "vulnerability_title": ["RC4 Weak Cipher Support", "SSH Weak Key Exchange", "Default SNMP String", "Port 80 Open"]
+        })
+        st.dataframe(vuln_template)
+        csv_vuln = vuln_template.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Vulnerabilities CSV", csv_vuln, "vulnerabilities_template.csv", "text/csv")
+
+    with col3:
+        st.subheader("Advisory Template")
+        adv_template = pd.DataFrame({
+            "cve_number": ["CVE-2024-12345", "CVE-2024-67890", "CVE-2023-45678"],
+            "ics-cert_advisory_title": ["ICS Advisory ICSA-24-123-01", "ICS Advisory ICSA-24-456-02", "ICS Advisory ICSA-23-789-03"],
+            "cwe_number": ["CWE-798", "CWE-287", "CWE-200"],
+            "critical_infrastructure_sector": ["Energy", "Water", "Transportation"]
+        })
+        st.dataframe(adv_template)
+        csv_adv = adv_template.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Advisory CSV", csv_adv, "advisory_template.csv", "text/csv")
+
+    st.markdown("---")
+    st.subheader("Upload Files to Import into Database")
+
+    asset_file = st.file_uploader("Assets CSV/Excel", type=["csv", "xlsx"], key="import_assets")
+    if asset_file is not None:
+        try:
+            if asset_file.name.endswith('.csv'):
+                df_asset = pd.read_csv(asset_file)
+            else:
+                df_asset = pd.read_excel(asset_file)
+            required_asset_cols = ['site', 'asset_type', 'vendor', 'protocol']
+            missing = [col for col in required_asset_cols if col not in df_asset.columns]
+            if missing:
+                st.error(f"Missing required columns: {missing}")
+            else:
+                for _, row in df_asset.iterrows():
+                    ip_address = row.get('ip_address', '')
+                    if 'ip_type' in row and pd.notna(row['ip_type']) and row['ip_type'] != '':
+                        ip_type = row['ip_type']
+                    else:
+                        ip_type = derive_ip_type(ip_address)
+                    save_asset(
+                        site=row.get('site', ''),
+                        asset_type=row.get('asset_type', ''),
+                        vendor=row.get('vendor', ''),
+                        firmware=row.get('firmware', ''),
+                        network_zone=row.get('network_zone', ''),
+                        criticality=row.get('criticality', 'Medium'),
+                        protocol=row.get('protocol', ''),
+                        ip_address=ip_address,
+                        mac_address=row.get('mac_address', ''),
+                        location=row.get('location', ''),
+                        serial_number=row.get('serial_number', ''),
+                        last_seen=row.get('last_seen', datetime.now().strftime("%Y-%m-%d")),
+                        other_properties=row.get('other_properties', ''),
+                        os=row.get('os', ''),
+                        ip_type=ip_type
+                    )
+                st.success(f"Imported {len(df_asset)} assets.")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Error reading asset file: {e}")
+
+    vuln_file = st.file_uploader("Vulnerabilities CSV/Excel", type=["csv", "xlsx"], key="import_vulns")
+    if vuln_file is not None:
+        try:
+            if vuln_file.name.endswith('.csv'):
+                df_vuln = pd.read_csv(vuln_file)
+            else:
+                df_vuln = pd.read_excel(vuln_file)
+            required_vuln_cols = ['asset_id', 'cve_id', 'cvss_score']
+            missing = [col for col in required_vuln_cols if col not in df_vuln.columns]
+            if missing:
+                st.error(f"Missing required columns: {missing}")
+            else:
+                for _, row in df_vuln.iterrows():
+                    asset_id = int(row.get('asset_id', 0))
+                    if asset_id == 0:
+                        st.warning("Skipping vulnerability with invalid asset_id")
+                        continue
+                    save_vulnerability(
+                        asset_id,
+                        row.get('cve_id', ''),
+                        float(row.get('cvss_score', 0)),
+                        row.get('exploitability', ''),
+                        row.get('patch_availability', ''),
+                        row.get('severity', ''),
+                        row.get('hostname', ''),
+                        row.get('port', None) if pd.notna(row.get('port', None)) else None,
+                        row.get('protocol', ''),
+                        row.get('plugin_name', ''),
+                        row.get('vulnerability_title', '')
+                    )
+                st.success(f"Imported {len(df_vuln)} vulnerabilities.")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Error reading vulnerability file: {e}")
+
+    adv_file = st.file_uploader("Advisory CSV/Excel", type=["csv", "xlsx"], key="import_advisory")
+    if adv_file is not None:
+        try:
+            if adv_file.name.endswith('.csv'):
+                df_adv = pd.read_csv(adv_file)
+            else:
+                df_adv = pd.read_excel(adv_file)
+            required_adv_cols = ['cve_number']
+            missing = [col for col in required_adv_cols if col not in df_adv.columns]
+            if missing:
+                st.error(f"Missing required columns: {missing}")
+            else:
+                for _, row in df_adv.iterrows():
+                    save_advisory(
+                        row['cve_number'],
+                        row.get('ics-cert_advisory_title', ''),
+                        row.get('cwe_number', ''),
+                        row.get('critical_infrastructure_sector', '')
+                    )
+                st.success(f"Imported {len(df_adv)} advisory entries.")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Error reading advisory file: {e}")
+
+# -----------------------------------------------------------------------------
+# EXPORT DATA
+# -----------------------------------------------------------------------------
+elif page == "Export Data":
+    st.title("Export Data")
+
+    assets_df = load_assets()
+    vuln_df = load_vulnerabilities()
+    advisory_df = load_advisory()
+
+    if not assets_df.empty:
+        csv_assets = assets_df.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Assets CSV", csv_assets, "assets_export.csv", "text/csv")
+    else:
+        st.info("No assets to export.")
+
+    if not vuln_df.empty:
+        csv_vuln = vuln_df.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Vulnerabilities CSV", csv_vuln, "vulnerabilities_export.csv", "text/csv")
+    else:
+        st.info("No vulnerabilities to export.")
+
+    if not advisory_df.empty:
+        csv_adv = advisory_df.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Advisory CSV", csv_adv, "advisory_export.csv", "text/csv")
+    else:
+        st.info("No advisory data to export.")
