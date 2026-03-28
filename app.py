@@ -11,7 +11,7 @@ import numpy as np
 st.set_page_config(page_title="OT Cybersecurity Dashboard", layout="wide")
 
 # -------------------------------
-# Helper functions for database (used by management pages)
+# Helper functions for database
 def init_db():
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
@@ -31,6 +31,8 @@ def init_db():
                   serial_number TEXT,
                   last_seen TEXT,
                   other_properties TEXT,
+                  os TEXT,
+                  ip_type TEXT,
                   created_at TIMESTAMP)''')
     # Vulnerabilities table
     c.execute('''CREATE TABLE IF NOT EXISTS vulnerabilities
@@ -59,6 +61,15 @@ def init_db():
     conn.commit()
     conn.close()
 
+def clear_all_data():
+    conn = sqlite3.connect('ot_cyber.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM assets")
+    c.execute("DELETE FROM vulnerabilities")
+    c.execute("DELETE FROM advisory")
+    conn.commit()
+    conn.close()
+
 def load_assets():
     conn = sqlite3.connect('ot_cyber.db')
     df = pd.read_sql_query("SELECT * FROM assets", conn)
@@ -78,17 +89,18 @@ def load_advisory():
     return df
 
 def save_asset(site, asset_type, vendor, firmware, network_zone, criticality,
-               protocol, ip_address, mac_address, location, serial_number, last_seen, other_properties):
+               protocol, ip_address, mac_address, location, serial_number, last_seen,
+               other_properties, os='', ip_type=''):
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
     c.execute("""INSERT INTO assets 
                  (site, asset_type, vendor, firmware, network_zone, criticality,
                   protocol, ip_address, mac_address, location, serial_number, last_seen,
-                  other_properties, created_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  other_properties, os, ip_type, created_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
               (site, asset_type, vendor, firmware, network_zone, criticality,
                protocol, ip_address, mac_address, location, serial_number, last_seen,
-               other_properties, datetime.now()))
+               other_properties, os, ip_type, datetime.now()))
     conn.commit()
     asset_id = c.lastrowid
     conn.close()
@@ -133,7 +145,6 @@ def delete_all_advisory():
     conn.close()
 
 def calculate_risk_score(assets, vulns):
-    """Calculate total risk score (sum of CVSS * criticality weight)."""
     if assets.empty or vulns.empty:
         return 0
     criticality_weights = {'Low': 1, 'Medium': 2, 'High': 3, 'Critical': 4}
@@ -144,7 +155,17 @@ def calculate_risk_score(assets, vulns):
     merged['risk'] = merged['cvss_score'] * merged['weight']
     return merged['risk'].sum()
 
-# Initialize database (for management pages)
+def derive_ip_type(ip):
+    """Return a simple classification: IPv4 or IPv6. Could be extended."""
+    if pd.isna(ip) or ip == '':
+        return 'Unknown'
+    ip = str(ip)
+    if ':' in ip:
+        return 'IPv6'
+    else:
+        return 'IPv4'
+
+# Initialize database
 init_db()
 
 # -------------------------------
@@ -153,11 +174,11 @@ st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["Dashboard", "Assets Management", "Vulnerabilities Management", "Advisory Data", "Import Data", "Export Data"])
 
 # -----------------------------------------------------------------------------
-# DASHBOARD PAGE (File‑only, no database)
+# DASHBOARD PAGE (File import + enhanced visuals)
 # -----------------------------------------------------------------------------
 if page == "Dashboard":
     st.title("🔒 OT Cybersecurity Dashboard")
-    st.markdown("Upload vulnerability, asset, and ICS advisory data to visualize risk.")
+    st.markdown("Upload your data files to populate the dashboard and management pages.")
 
     # File uploaders
     col1, col2, col3 = st.columns(3)
@@ -168,343 +189,337 @@ if page == "Dashboard":
     with col3:
         advisory_file = st.file_uploader("📄 Advisory File (CSV/Excel)", type=["csv", "xlsx"], key="dashboard_advisory")
 
-    if not (vuln_file and asset_file and advisory_file):
-        st.info("Please upload all three files to see the dashboard.")
+    # When all files are uploaded, import them into the database
+    if vuln_file and asset_file and advisory_file:
+        if st.button("Load Files into Database (replaces existing data)"):
+            with st.spinner("Loading and importing data..."):
+                clear_all_data()
+
+                def load_file(file):
+                    if file.name.endswith('.csv'):
+                        return pd.read_csv(file)
+                    else:
+                        return pd.read_excel(file)
+
+                # Load assets
+                asset_df = load_file(asset_file)
+                asset_df.columns = asset_df.columns.str.strip().str.lower()
+                required_asset = ['asset_id', 'asset_type', 'criticality', 'network_zone', 'site', 'vendor', 'protocol']
+                for col in required_asset:
+                    if col not in asset_df.columns:
+                        st.error(f"Asset file missing required column: {col}")
+                        st.stop()
+                for _, row in asset_df.iterrows():
+                    ip_address = row.get('ip_address', '')
+                    # Determine ip_type: if column exists, use it; else derive
+                    if 'ip_type' in row and pd.notna(row['ip_type']) and row['ip_type'] != '':
+                        ip_type = row['ip_type']
+                    else:
+                        ip_type = derive_ip_type(ip_address)
+                    save_asset(
+                        site=row.get('site', ''),
+                        asset_type=row.get('asset_type', ''),
+                        vendor=row.get('vendor', ''),
+                        firmware=row.get('firmware', ''),
+                        network_zone=row.get('network_zone', ''),
+                        criticality=row.get('criticality', 'Medium'),
+                        protocol=row.get('protocol', ''),
+                        ip_address=ip_address,
+                        mac_address=row.get('mac_address', ''),
+                        location=row.get('location', ''),
+                        serial_number=row.get('serial_number', ''),
+                        last_seen=row.get('last_seen', datetime.now().strftime("%Y-%m-%d")),
+                        other_properties=row.get('other_properties', ''),
+                        os=row.get('os', ''),
+                        ip_type=ip_type
+                    )
+
+                # Load vulnerabilities
+                vuln_df = load_file(vuln_file)
+                vuln_df.columns = vuln_df.columns.str.strip().str.lower()
+                required_vuln = ['asset_id', 'cve_id', 'cvss_score', 'exploitability', 'patch_availability', 'severity']
+                for col in required_vuln:
+                    if col not in vuln_df.columns:
+                        st.error(f"Vulnerability file missing required column: {col}")
+                        st.stop()
+                vuln_df['cvss_score'] = pd.to_numeric(vuln_df['cvss_score'], errors='coerce')
+                vuln_df.dropna(subset=['cvss_score'], inplace=True)
+                for _, row in vuln_df.iterrows():
+                    save_vulnerability(
+                        asset_id=int(row['asset_id']),
+                        cve_id=row['cve_id'],
+                        cvss_score=float(row['cvss_score']),
+                        exploitability=row.get('exploitability', ''),
+                        patch_availability=row.get('patch_availability', ''),
+                        severity=row.get('severity', ''),
+                        hostname=row.get('hostname', ''),
+                        port=row.get('port', None),
+                        protocol=row.get('protocol', ''),
+                        plugin_name=row.get('plugin_name', ''),
+                        vulnerability_title=row.get('vulnerability_title', '')
+                    )
+
+                # Load advisory
+                adv_df = load_file(advisory_file)
+                adv_df.columns = adv_df.columns.str.strip().str.lower()
+                if 'cve_number' not in adv_df.columns:
+                    st.error("Advisory file missing required column: cve_number")
+                    st.stop()
+                for _, row in adv_df.iterrows():
+                    save_advisory(
+                        cve_number=row['cve_number'],
+                        title=row.get('ics-cert_advisory_title', ''),
+                        cwe=row.get('cwe_number', ''),
+                        sector=row.get('critical_infrastructure_sector', '')
+                    )
+
+                st.success("Data imported successfully! The dashboard and management pages now show the uploaded data.")
+                st.rerun()
+    else:
+        st.info("Please upload all three files and click 'Load Files' to populate the dashboard.")
+
+    # Load data from database for display (if any)
+    assets_df = load_assets()
+    vuln_df = load_vulnerabilities()
+    advisory_df = load_advisory()
+
+    # If database is empty, show a message and stop
+    if assets_df.empty or vuln_df.empty:
+        st.warning("No data in the database. Please upload the three files above.")
         st.stop()
 
-    # Load data
-    @st.cache_data
-    def load_csv_or_excel(file):
-        if file.name.endswith('.csv'):
-            return pd.read_csv(file)
-        else:
-            return pd.read_excel(file)
+    # Merge vulnerabilities with advisory data (CVE mapping)
+    if not advisory_df.empty:
+        advisory_map = advisory_df.set_index('cve_number').to_dict('index')
+        def enrich_vuln(row):
+            cve = row['cve_id']
+            if cve in advisory_map:
+                row['advisory_title'] = advisory_map[cve].get('ics_cert_advisory_title', '')
+                row['cwe'] = advisory_map[cve].get('cwe_number', '')
+                row['infra_sector'] = advisory_map[cve].get('critical_infrastructure_sector', '')
+            else:
+                row['advisory_title'] = ''
+                row['cwe'] = ''
+                row['infra_sector'] = ''
+            return row
+        vuln_df = vuln_df.apply(enrich_vuln, axis=1)
+    else:
+        vuln_df['advisory_title'] = ''
+        vuln_df['cwe'] = ''
+        vuln_df['infra_sector'] = ''
 
-    with st.spinner("Loading data..."):
-        vuln_df = load_csv_or_excel(vuln_file)
-        asset_df = load_csv_or_excel(asset_file)
-        advisory_df = load_csv_or_excel(advisory_file)
-
-    # Preprocessing
-    vuln_df.columns = vuln_df.columns.str.strip().str.lower()
-    asset_df.columns = asset_df.columns.str.strip().str.lower()
-    advisory_df.columns = advisory_df.columns.str.strip().str.lower()
-
-    # Required columns
-    required_vuln = ['asset_id', 'cve_id', 'cvss_score', 'exploitability', 'patch_availability', 'severity']
-    required_asset = ['asset_id']
-    required_advisory = ['cve_number']
-
-    missing = []
-    for col in required_vuln:
-        if col not in vuln_df.columns:
-            missing.append(col)
-    if missing:
-        st.error(f"Vulnerability file missing required columns: {', '.join(missing)}")
-        st.stop()
-    if 'asset_id' not in asset_df.columns:
-        st.error("Asset file missing required column: asset_id")
-        st.stop()
-    if 'cve_number' not in advisory_df.columns:
-        st.error("Advisory file missing required column: cve_number")
-        st.stop()
-
-    # Convert CVSS to numeric
-    vuln_df['cvss_score'] = pd.to_numeric(vuln_df['cvss_score'], errors='coerce')
-    vuln_df.dropna(subset=['cvss_score'], inplace=True)
-
-    # Enrich with advisory data
-    advisory_unique = advisory_df.drop_duplicates(subset='cve_number', keep='first')
-    advisory_cve_map = (advisory_unique
-                        .set_index('cve_number')[['ics-cert_advisory_title', 'cwe_number', 'critical_infrastructure_sector']]
-                        .to_dict('index'))
-
-    def enrich_vuln(row):
-        cve = row['cve_id']
-        if cve in advisory_cve_map:
-            row['advisory_title'] = advisory_cve_map[cve].get('ics-cert_advisory_title', '')
-            row['cwe'] = advisory_cve_map[cve].get('cwe_number', '')
-            row['infra_sector'] = advisory_cve_map[cve].get('critical_infrastructure_sector', '')
-        else:
-            row['advisory_title'] = ''
-            row['cwe'] = ''
-            row['infra_sector'] = ''
-        return row
-
-    vuln_df = vuln_df.apply(enrich_vuln, axis=1)
-
-    # Merge with assets
-    merged_df = vuln_df.merge(asset_df, on='asset_id', how='left')
+    # Merge vulnerabilities with assets
+    merged_df = pd.merge(vuln_df, assets_df, left_on='asset_id', right_on='id', how='left')
     for col in ['asset_type', 'criticality', 'network_zone']:
         if col not in merged_df.columns:
             merged_df[col] = 'Unknown'
         else:
             merged_df[col] = merged_df[col].fillna('Unknown')
 
-    # Compute risk score (CVSS * criticality factor)
+    # Compute risk score
     crit_map = {'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
     merged_df['criticality'] = merged_df['criticality'].astype(str).str.lower().fillna('unknown')
     merged_df['criticality_factor'] = merged_df['criticality'].map(crit_map).fillna(1)
     merged_df['risk_score'] = merged_df['cvss_score'] * merged_df['criticality_factor']
-
-    # Ensure numeric
     merged_df['criticality_factor'] = pd.to_numeric(merged_df['criticality_factor'], errors='coerce').fillna(1)
     merged_df['risk_score'] = pd.to_numeric(merged_df['risk_score'], errors='coerce').fillna(0)
 
-    # Sidebar filters
-    st.sidebar.header("🔍 Filters")
-    with st.sidebar.expander("Severity", expanded=True):
-        severities = merged_df['severity'].dropna().unique()
-        selected_severities = st.multiselect("Severity", options=severities, default=severities, key="filt_sev")
-    with st.sidebar.expander("Asset Criticality", expanded=True):
-        criticalities = merged_df['criticality'].dropna().unique()
-        selected_criticalities = st.multiselect("Asset Criticality", options=criticalities, default=criticalities, key="filt_crit")
-    with st.sidebar.expander("Network Zone", expanded=True):
-        zones = merged_df['network_zone'].dropna().unique()
-        selected_zones = st.multiselect("Network Zone", options=zones, default=zones, key="filt_zone")
-    with st.sidebar.expander("Asset Type", expanded=True):
-        asset_types = merged_df['asset_type'].dropna().unique()
-        selected_asset_types = st.multiselect("Asset Type", options=asset_types, default=asset_types, key="filt_type")
-    with st.sidebar.expander("Exploitability", expanded=True):
-        exploit = merged_df['exploitability'].dropna().unique()
-        selected_exploit = st.multiselect("Exploitability", options=exploit, default=exploit, key="filt_exp")
-    with st.sidebar.expander("Patch Availability", expanded=True):
-        patch = merged_df['patch_availability'].dropna().unique()
-        selected_patch = st.multiselect("Patch Availability", options=patch, default=patch, key="filt_patch")
-    with st.sidebar.expander("CWE", expanded=True):
-        cwes = merged_df['cwe'].dropna().unique()
-        selected_cwes = st.multiselect("CWE", options=cwes, default=cwes, key="filt_cwe")
-    with st.sidebar.expander("Infrastructure Sector", expanded=True):
-        sectors = merged_df['infra_sector'].dropna().unique()
-        selected_sectors = st.multiselect("Sector", options=sectors, default=sectors, key="filt_sector")
+    # -------------------------------------------------------------------------
+    # Branding and metric blocks
+    # -------------------------------------------------------------------------
+    # Header with logo and info (use local logo or URL)
+    col_logo, col_info = st.columns([1, 3])
+    with col_logo:
+        try:
+            st.image("logo.png", width=100)   # Place a logo.png in your repo or use a URL
+        except:
+            st.markdown("**LOGO**")
+    with col_info:
+        st.markdown(
+            """
+            <div style="background-color:black; padding:10px; border-radius:5px; color:white;">
+            <b>Data Source:</b> Asset, Vulnerability & Advisory Files<br>
+            <b>Captured Date:</b> {}<br>
+            <b>Site Name:</b> {}<br>
+            </div>
+            """.format(
+                datetime.now().strftime("%Y-%m-%d %H:%M"),
+                assets_df['site'].iloc[0] if not assets_df.empty else "N/A"
+            ), unsafe_allow_html=True
+        )
 
-    cvss_range = st.sidebar.slider("CVSS Score Range", 0.0, 10.0, (0.0, 10.0))
-    risk_range = st.sidebar.slider("Risk Score Range", 0.0, 40.0, (0.0, 40.0))
-    search = st.sidebar.text_input("Search (CVE or Asset ID)")
-
-    # Apply filters
-    filtered_df = merged_df[
-        (merged_df['severity'].isin(selected_severities)) &
-        (merged_df['criticality'].isin(selected_criticalities)) &
-        (merged_df['network_zone'].isin(selected_zones)) &
-        (merged_df['asset_type'].isin(selected_asset_types)) &
-        (merged_df['exploitability'].isin(selected_exploit)) &
-        (merged_df['patch_availability'].isin(selected_patch)) &
-        (merged_df['cwe'].isin(selected_cwes)) &
-        (merged_df['infra_sector'].isin(selected_sectors)) &
-        (merged_df['cvss_score'].between(cvss_range[0], cvss_range[1])) &
-        (merged_df['risk_score'].between(risk_range[0], risk_range[1]))
-    ]
-
-    if search:
-        filtered_df = filtered_df[filtered_df['cve_id'].str.contains(search, case=False) |
-                                  filtered_df['asset_id'].astype(str).str.contains(search, case=False)]
-
-    if filtered_df.empty:
-        st.warning("No data matches the selected filters. Please adjust filters.")
-        st.stop()
-
-    # KPIs
-    st.markdown("### Key Metrics")
-    col1, col2, col3, col4, col5 = st.columns(5)
+    st.markdown("---")
+    # Metrics (stacked rectangular blocks)
+    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
     with col1:
-        st.metric("Total CVEs", len(filtered_df['cve_id'].unique()))
+        ot_assets = assets_df[assets_df['asset_type'].str.lower().str.contains('ot', na=False)].shape[0]
+        st.metric("OT Assets", ot_assets)
     with col2:
-        st.metric("Total Assets", filtered_df['asset_id'].nunique())
+        it_assets = assets_df[assets_df['asset_type'].str.lower().str.contains('it', na=False)].shape[0]
+        st.metric("IT Assets", it_assets)
     with col3:
-        st.metric("Total Vulnerabilities", len(filtered_df))
+        iot_assets = assets_df[assets_df['asset_type'].str.lower().str.contains('iot', na=False)].shape[0]
+        st.metric("IoT Assets", iot_assets)
     with col4:
-        st.metric("Avg CVSS Score", f"{filtered_df['cvss_score'].mean():.2f}")
+        distinct_protocols = assets_df['protocol'].nunique()
+        st.metric("Distinct Protocols", distinct_protocols)
     with col5:
-        st.metric("Avg Risk Score", f"{filtered_df['risk_score'].mean():.2f}")
+        num_vendors = assets_df['vendor'].nunique()
+        st.metric("Vendors", num_vendors)
+    with col6:
+        unique_asset_types = assets_df['asset_type'].nunique()
+        st.metric("Unique Asset Types", unique_asset_types)
+    with col7:
+        non_networking = assets_df[assets_df['ip_address'].isna() | (assets_df['ip_address'] == '')].shape[0]
+        st.metric("Non-Networking Assets", non_networking)
 
-    # Tabs
-    tab_overview, tab_asset_risk, tab_vuln_insights, tab_advisory = st.tabs([
-        "📊 Overview", "🏭 Asset Risk", "🛡️ Vulnerability Insights", "📄 Advisory & CWE"
-    ])
+    st.markdown("---")
 
-    with tab_overview:
-        col1, col2 = st.columns(2)
-        with col1:
-            fig_cvss = px.histogram(filtered_df, x="cvss_score", nbins=20, title="CVSS Score Distribution",
-                                    color_discrete_sequence=['#FF6B6B'])
-            fig_cvss.update_layout(bargap=0.1)
-            st.plotly_chart(fig_cvss, use_container_width=True)
-
-            severity_counts = filtered_df['severity'].value_counts().reset_index()
-            severity_counts.columns = ['Severity', 'Count']
-            fig_sev = px.pie(severity_counts, values='Count', names='Severity',
-                             title="Vulnerability Severity", hole=0.3)
-            st.plotly_chart(fig_sev, use_container_width=True)
-
-        with col2:
-            fig_risk = px.histogram(filtered_df, x="risk_score", nbins=20, title="Risk Score Distribution",
-                                    color_discrete_sequence=['#4ECDC4'])
-            fig_risk.update_layout(bargap=0.1)
-            st.plotly_chart(fig_risk, use_container_width=True)
-
-            crit_counts = filtered_df['criticality'].value_counts().reset_index()
-            crit_counts.columns = ['Criticality', 'Count']
-            fig_crit = px.bar(crit_counts, x='Criticality', y='Count', title="Assets by Criticality",
-                              color='Criticality', color_discrete_sequence=px.colors.qualitative.Set2)
-            st.plotly_chart(fig_crit, use_container_width=True)
-
-        zone_risk = filtered_df.groupby('network_zone')['risk_score'].mean().reset_index()
-        if not zone_risk.empty:
-            fig_zone = px.bar(zone_risk, x='network_zone', y='risk_score',
-                              title="Average Risk Score by Network Zone",
-                              color='risk_score', color_continuous_scale='Reds')
-            st.plotly_chart(fig_zone, use_container_width=True)
-
-        top_cves = filtered_df.groupby('cve_id')['risk_score'].max().sort_values(ascending=False).head(10).reset_index()
-        fig_top_cves = px.bar(top_cves, x='cve_id', y='risk_score', title="Top 10 CVEs by Risk Score",
-                              color='risk_score', color_continuous_scale='Reds')
-        fig_top_cves.update_xaxes(tickangle=45)
-        st.plotly_chart(fig_top_cves, use_container_width=True)
-
-    with tab_asset_risk:
-        st.subheader("Asset Vulnerability Details")
-        st.markdown("Expand any asset to see its vulnerabilities.")
-        asset_groups = filtered_df.groupby('asset_id')
-        for asset_id, group in asset_groups:
-            asset_type = group['asset_type'].iloc[0]
-            criticality = group['criticality'].iloc[0]
-            avg_risk = group['risk_score'].mean()
-            with st.expander(f"🏭 Asset ID: {asset_id} | Type: {asset_type} | Criticality: {criticality} | Avg Risk: {avg_risk:.2f}"):
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Total Vulnerabilities", len(group))
-                with col2:
-                    st.metric("Avg CVSS Score", f"{group['cvss_score'].mean():.2f}")
-                with col3:
-                    st.metric("Max Risk Score", f"{group['risk_score'].max():.2f}")
-
-                asset_vuln_table = group[['cve_id', 'cvss_score', 'severity', 'exploitability', 'patch_availability', 'risk_score', 'cwe']].sort_values('risk_score', ascending=False)
-                st.dataframe(asset_vuln_table, use_container_width=True)
-
-                fig_asset = px.bar(asset_vuln_table, x='cve_id', y='risk_score',
-                                   title=f"Risk Score per CVE on Asset {asset_id}", color='severity')
-                fig_asset.update_xaxes(tickangle=45)
-                st.plotly_chart(fig_asset, use_container_width=True)
-
-        st.subheader("Asset Risk Dashboard")
-        asset_risk = filtered_df.groupby('asset_id').agg({
-            'risk_score': 'mean',
-            'asset_type': 'first',
-            'criticality': 'first',
-            'network_zone': 'first'
-        }).reset_index().sort_values('risk_score', ascending=False).head(15)
-        fig_asset_risk = px.bar(asset_risk, x='asset_id', y='risk_score',
-                                color='criticality', title="Top 15 Assets by Average Risk Score",
-                                hover_data=['asset_type', 'network_zone'])
-        fig_asset_risk.update_xaxes(tickangle=45)
-        st.plotly_chart(fig_asset_risk, use_container_width=True)
-
-        # Heatmap (asset type vs CVE)
-        asset_cve_matrix = filtered_df.groupby(['asset_type', 'cve_id']).size().reset_index(name='count')
-        if len(asset_cve_matrix['asset_type'].unique()) > 1 and len(asset_cve_matrix['cve_id'].unique()) > 1:
-            pivot = asset_cve_matrix.pivot(index='asset_type', columns='cve_id', values='count').fillna(0)
-            fig_heat = px.imshow(pivot, text_auto=True, aspect="auto",
-                                 title="Vulnerability Count per Asset Type and CVE",
-                                 color_continuous_scale="Blues")
-            st.plotly_chart(fig_heat, use_container_width=True)
+    # -------------------------------------------------------------------------
+    # First row of charts: OS pie, IP by protocol bar, criticality pie
+    # -------------------------------------------------------------------------
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.subheader("OS Distribution")
+        if 'os' in assets_df.columns and not assets_df['os'].isna().all():
+            os_counts = assets_df['os'].value_counts().reset_index()
+            os_counts.columns = ['OS', 'Count']
+            fig_os = px.pie(os_counts, values='Count', names='OS', title="Operating Systems", hole=0.3)
+            st.plotly_chart(fig_os, use_container_width=True)
         else:
-            st.info("Not enough unique asset types and CVEs for a heatmap.")
+            st.info("No OS data available")
 
-        fig_scatter = px.scatter(filtered_df, x='asset_type', y='cvss_score',
-                                 color='criticality', size='risk_score',
-                                 hover_data=['cve_id', 'asset_id'],
-                                 title="CVSS Score by Asset Type (size = risk score)")
-        st.plotly_chart(fig_scatter, use_container_width=True)
+    with col2:
+        st.subheader("IP Addresses by Protocol")
+        if 'ip_address' in assets_df.columns and 'protocol' in assets_df.columns:
+            ip_by_protocol = assets_df.groupby('protocol')['ip_address'].nunique().reset_index()
+            ip_by_protocol.columns = ['Protocol', 'Unique IPs']
+            fig_prot = px.bar(ip_by_protocol, x='Protocol', y='Unique IPs', title="Unique IPs per Protocol")
+            st.plotly_chart(fig_prot, use_container_width=True)
+        else:
+            st.info("No IP or protocol data available")
 
-    with tab_vuln_insights:
-        col1, col2 = st.columns(2)
-        with col1:
-            exp_counts = filtered_df['exploitability'].value_counts().reset_index()
-            exp_counts.columns = ['Exploitability', 'Count']
-            fig_exp = px.pie(exp_counts, values='Count', names='Exploitability',
-                             title="Exploitability Distribution", hole=0.3)
-            st.plotly_chart(fig_exp, use_container_width=True)
+    with col3:
+        st.subheader("Asset Criticality")
+        crit_counts = assets_df['criticality'].value_counts().reset_index()
+        crit_counts.columns = ['Criticality', 'Count']
+        fig_crit = px.pie(crit_counts, values='Count', names='Criticality', title="Asset Criticality", hole=0.3)
+        st.plotly_chart(fig_crit, use_container_width=True)
 
-            patch_counts = filtered_df['patch_availability'].value_counts().reset_index()
-            patch_counts.columns = ['Patch Availability', 'Count']
-            fig_patch = px.bar(patch_counts, x='Patch Availability', y='Count',
-                               title="Patch Availability", color='Patch Availability')
-            st.plotly_chart(fig_patch, use_container_width=True)
+    # -------------------------------------------------------------------------
+    # Second row: IP count by vendor (bar) + IP type horizontal bar
+    # -------------------------------------------------------------------------
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("IP Address Count by Vendor")
+        if 'vendor' in assets_df.columns and 'ip_address' in assets_df.columns:
+            vendor_ip_count = assets_df.groupby('vendor')['ip_address'].nunique().reset_index()
+            vendor_ip_count.columns = ['Vendor', 'Unique IPs']
+            fig_vendor = px.bar(vendor_ip_count, x='Vendor', y='Unique IPs', 
+                                title="Unique IPs per Vendor", color='Unique IPs',
+                                color_continuous_scale='Viridis')
+            fig_vendor.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_vendor, use_container_width=True)
+        else:
+            st.info("No vendor or IP data")
 
-        with col2:
-            asset_vuln_count = filtered_df.groupby('asset_type')['cve_id'].nunique().reset_index()
-            asset_vuln_count.columns = ['Asset Type', 'Unique CVEs']
-            fig_asset_vuln = px.bar(asset_vuln_count, x='Asset Type', y='Unique CVEs',
-                                    title="Unique CVEs per Asset Type", color='Unique CVEs')
-            st.plotly_chart(fig_asset_vuln, use_container_width=True)
+    with col2:
+        st.subheader("IP Addresses by IP Type")
+        if 'ip_type' in assets_df.columns and not assets_df['ip_type'].isna().all():
+            ip_type_counts = assets_df['ip_type'].value_counts().reset_index()
+            ip_type_counts.columns = ['IP Type', 'Count']
+            fig_ip_type = px.bar(ip_type_counts, x='IP Type', y='Count', orientation='h', 
+                                 title="IP Type Distribution")
+            st.plotly_chart(fig_ip_type, use_container_width=True)
+        else:
+            st.info("No IP type data available")
 
-            density = filtered_df.groupby('asset_type').agg({
-                'asset_id': 'nunique',
-                'cve_id': 'count'
-            }).reset_index()
-            density['vulns_per_asset'] = density['cve_id'] / density['asset_id']
-            fig_density = px.bar(density, x='asset_type', y='vulns_per_asset',
-                                 title="Average Vulnerabilities per Asset by Type")
-            st.plotly_chart(fig_density, use_container_width=True)
+    # -------------------------------------------------------------------------
+    # CVE section
+    # -------------------------------------------------------------------------
+    st.markdown("---")
+    st.header("Vulnerability Insights")
 
-        # CVSS vs Risk Score scatter
-        fig_cvss_risk = px.scatter(filtered_df, x='cvss_score', y='risk_score',
-                                   color='severity', size='criticality_factor',
-                                   hover_data=['cve_id', 'asset_id'],
-                                   title="CVSS vs Risk Score (size = criticality factor)")
-        st.plotly_chart(fig_cvss_risk, use_container_width=True)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        total_cves = len(vuln_df['cve_id'].unique())
+        st.metric("Total CVEs", total_cves)
+    with col2:
+        unique_cves = len(vuln_df['cve_id'].unique())
+        st.metric("Unique CVEs", unique_cves)
+    with col3:
+        avg_cvss = vuln_df['cvss_score'].mean()
+        st.metric("Average CVSS Score", f"{avg_cvss:.2f}")
 
-        cve_asset_count = filtered_df.groupby('cve_id')['asset_id'].nunique().reset_index().sort_values('asset_id', ascending=False).head(10)
-        fig_cve_assets = px.bar(cve_asset_count, x='cve_id', y='asset_id',
-                                title="Top 10 CVEs by Number of Affected Assets",
-                                color='asset_id')
-        fig_cve_assets.update_xaxes(tickangle=45)
-        st.plotly_chart(fig_cve_assets, use_container_width=True)
+    st.subheader("CVE Details")
+    cve_details = vuln_df[['cve_id', 'cvss_score', 'severity']].drop_duplicates().sort_values('cvss_score', ascending=False).head(20)
+    st.dataframe(cve_details, use_container_width=True)
 
-    with tab_advisory:
-        col1, col2 = st.columns(2)
-        with col1:
-            cwe_counts = filtered_df['cwe'].value_counts().reset_index().head(15)
-            cwe_counts.columns = ['CWE', 'Count']
-            fig_cwe = px.bar(cwe_counts, x='CWE', y='Count', title="Top 15 CWEs")
-            fig_cwe.update_xaxes(tickangle=45)
-            st.plotly_chart(fig_cwe, use_container_width=True)
+    st.subheader("CVE Count by Vendor")
+    if 'vendor' in merged_df.columns:
+        cve_by_vendor = merged_df.groupby('vendor')['cve_id'].nunique().reset_index()
+        cve_by_vendor.columns = ['Vendor', 'CVE Count']
+        fig_vendor_cve = px.bar(cve_by_vendor, x='Vendor', y='CVE Count', title="CVEs per Vendor", color='CVE Count')
+        fig_vendor_cve.update_xaxes(tickangle=45)
+        st.plotly_chart(fig_vendor_cve, use_container_width=True)
+    else:
+        st.info("No vendor data available")
 
-            cwe_severity = filtered_df.groupby(['cwe', 'severity']).size().reset_index(name='count')
-            if not cwe_severity.empty:
-                fig_cwe_sev = px.bar(cwe_severity, x='cwe', y='count', color='severity',
-                                     title="CWE Distribution by Severity")
-                fig_cwe_sev.update_xaxes(tickangle=45)
-                st.plotly_chart(fig_cwe_sev, use_container_width=True)
+    st.subheader("CVE Criticality")
+    def cvss_to_criticality(score):
+        if score >= 9.0:
+            return 'Critical'
+        elif score >= 7.0:
+            return 'High'
+        elif score >= 4.0:
+            return 'Medium'
+        else:
+            return 'Low'
+    vuln_df['cve_criticality'] = vuln_df['cvss_score'].apply(cvss_to_criticality)
+    crit_counts_cve = vuln_df['cve_criticality'].value_counts().reset_index()
+    crit_counts_cve.columns = ['Criticality', 'Count']
+    fig_cve_crit = px.pie(crit_counts_cve, values='Count', names='Criticality', title="CVE Criticality (CVSS based)", hole=0.3)
+    st.plotly_chart(fig_cve_crit, use_container_width=True)
 
-        with col2:
-            sector_counts = filtered_df['infra_sector'].value_counts().reset_index()
-            sector_counts.columns = ['Sector', 'Count']
-            fig_sector = px.pie(sector_counts, values='Count', names='Sector',
-                                title="Critical Infrastructure Sectors")
-            st.plotly_chart(fig_sector, use_container_width=True)
+    st.subheader("Risk Heatmap (Asset Criticality vs CVE Criticality)")
+    if 'criticality' in merged_df.columns and 'cve_criticality' in merged_df.columns:
+        heatmap_data = merged_df.groupby(['criticality', 'cve_criticality']).size().reset_index(name='count')
+        pivot = heatmap_data.pivot(index='criticality', columns='cve_criticality', values='count').fillna(0)
+        fig_heat = px.imshow(pivot, text_auto=True, aspect="auto", title="Number of Vulnerabilities",
+                             color_continuous_scale="Reds")
+        st.plotly_chart(fig_heat, use_container_width=True)
+    else:
+        st.info("Insufficient data for risk heatmap")
 
-            adv_counts = filtered_df['advisory_title'].value_counts().reset_index().head(10)
-            adv_counts.columns = ['Advisory Title', 'Count']
-            fig_adv = px.bar(adv_counts, x='Advisory Title', y='Count',
-                             title="Top 10 Advisory References")
-            fig_adv.update_xaxes(tickangle=45)
-            st.plotly_chart(fig_adv, use_container_width=True)
+    st.subheader("CVE Distribution by IP and Severity Range")
+    if 'ip_address' in merged_df.columns and 'severity' in merged_df.columns:
+        ip_severity = merged_df.groupby(['ip_address', 'severity']).size().reset_index(name='count')
+        fig_ip_sev = px.bar(ip_severity, x='ip_address', y='count', color='severity',
+                            title="CVE Count per IP by Severity", barmode='group')
+        fig_ip_sev.update_xaxes(tickangle=45)
+        st.plotly_chart(fig_ip_sev, use_container_width=True)
+    else:
+        st.info("No IP or severity data available")
 
-        st.subheader("CVE to Advisory Mapping")
-        advisory_table = filtered_df[['cve_id', 'advisory_title', 'cwe', 'infra_sector']].drop_duplicates().sort_values('cve_id')
-        st.dataframe(advisory_table, use_container_width=True)
+    st.subheader("CVE Distribution by IP (Horizontal)")
+    if 'ip_address' in merged_df.columns:
+        cve_by_ip = merged_df.groupby('ip_address')['cve_id'].nunique().reset_index().sort_values('cve_id', ascending=True)
+        cve_by_ip.columns = ['IP Address', 'CVE Count']
+        fig_ip_cve = px.bar(cve_by_ip, x='CVE Count', y='IP Address', orientation='h',
+                            title="CVE Count per IP", color='CVE Count')
+        st.plotly_chart(fig_ip_cve, use_container_width=True)
+    else:
+        st.info("No IP data available")
 
-    # Download button
-    csv = filtered_df.to_csv(index=False).encode('utf-8')
+    # Download button (optional)
     st.sidebar.markdown("---")
-    st.sidebar.download_button("📥 Download Filtered Data as CSV", data=csv,
+    csv = merged_df.to_csv(index=False).encode('utf-8')
+    st.sidebar.download_button("📥 Download Data as CSV", data=csv,
                                file_name="ot_risk_assessment.csv", mime="text/csv")
-    st.sidebar.success("Dashboard ready. Use filters to explore risk.")
+    st.sidebar.success("Dashboard ready.")
 
 # -----------------------------------------------------------------------------
-# ASSETS MANAGEMENT (uses SQLite)
+# ASSETS MANAGEMENT (updated with OS and IP Type fields)
 # -----------------------------------------------------------------------------
 elif page == "Assets Management":
     st.title("Manage OT Assets")
@@ -520,8 +535,10 @@ elif page == "Assets Management":
                 network_zone = st.text_input("Network Zone")
                 criticality = st.selectbox("Criticality", ["Low", "Medium", "High", "Critical"])
                 protocol = st.text_input("Protocol *", help="Required")
+                os = st.text_input("Operating System")
             with col2:
                 ip_address = st.text_input("IP Address")
+                ip_type = st.selectbox("IP Type", ["", "IPv4", "IPv6", "Private", "Public"], help="Optional: select or leave empty to auto‑detect")
                 mac_address = st.text_input("MAC Address")
                 location = st.text_input("Location")
                 serial_number = st.text_input("Serial Number")
@@ -530,9 +547,12 @@ elif page == "Assets Management":
             submitted = st.form_submit_button("Add Asset")
             if submitted:
                 if site and asset_type and vendor and protocol:
+                    # If ip_type not provided, derive
+                    final_ip_type = ip_type if ip_type else derive_ip_type(ip_address)
                     asset_id = save_asset(site, asset_type, vendor, firmware, network_zone, criticality,
                                           protocol, ip_address, mac_address, location, serial_number,
-                                          last_seen.strftime("%Y-%m-%d"), other_properties)
+                                          last_seen.strftime("%Y-%m-%d"), other_properties,
+                                          os=os, ip_type=final_ip_type)
                     st.success(f"Asset added with ID {asset_id}")
                 else:
                     st.error("Site, Asset Type, Vendor and Protocol are required.")
@@ -549,7 +569,7 @@ elif page == "Assets Management":
         st.info("No assets found.")
 
 # -----------------------------------------------------------------------------
-# VULNERABILITIES MANAGEMENT (uses SQLite)
+# VULNERABILITIES MANAGEMENT (unchanged)
 # -----------------------------------------------------------------------------
 elif page == "Vulnerabilities Management":
     st.title("Manage Vulnerabilities")
@@ -589,7 +609,7 @@ elif page == "Vulnerabilities Management":
         st.info("No vulnerabilities found.")
 
 # -----------------------------------------------------------------------------
-# ADVISORY DATA (uses SQLite)
+# ADVISORY DATA (unchanged)
 # -----------------------------------------------------------------------------
 elif page == "Advisory Data":
     st.title("Manage Advisory Data (CVE Mappings)")
@@ -645,7 +665,7 @@ elif page == "Advisory Data":
             st.error(f"Error reading file: {e}")
 
 # -----------------------------------------------------------------------------
-# IMPORT DATA (to SQLite)
+# IMPORT DATA (updated to include os and ip_type)
 # -----------------------------------------------------------------------------
 elif page == "Import Data":
     st.title("Import Data from Files")
@@ -667,7 +687,9 @@ elif page == "Import Data":
             "location": ["Main Control Room", "Field Station 3", "Control Room East"],
             "serial_number": ["SN-12345", "SN-67890", "SN-112233"],
             "last_seen": ["2025-03-27", "2025-03-26", "2025-03-27"],
-            "other_properties": ["{\"protocol\": \"Modbus\"}", "{\"protocol\": \"DNP3\"}", "{\"touchscreen\": true}"]
+            "other_properties": ["{\"protocol\": \"Modbus\"}", "{\"protocol\": \"DNP3\"}", "{\"touchscreen\": true}"],
+            "os": ["Windows 10", "Linux", "VxWorks"],
+            "ip_type": ["IPv4", "IPv4", "IPv4"]
         })
         st.dataframe(asset_template)
         csv_asset = asset_template.to_csv(index=False).encode('utf-8')
@@ -720,20 +742,27 @@ elif page == "Import Data":
                 st.error(f"Missing required columns: {missing}")
             else:
                 for _, row in df_asset.iterrows():
+                    ip_address = row.get('ip_address', '')
+                    if 'ip_type' in row and pd.notna(row['ip_type']) and row['ip_type'] != '':
+                        ip_type = row['ip_type']
+                    else:
+                        ip_type = derive_ip_type(ip_address)
                     save_asset(
-                        row.get('site', ''),
-                        row.get('asset_type', ''),
-                        row.get('vendor', ''),
-                        row.get('firmware', ''),
-                        row.get('network_zone', ''),
-                        row.get('criticality', 'Medium'),
-                        row.get('protocol', ''),
-                        row.get('ip_address', ''),
-                        row.get('mac_address', ''),
-                        row.get('location', ''),
-                        row.get('serial_number', ''),
-                        row.get('last_seen', datetime.now().strftime("%Y-%m-%d")),
-                        row.get('other_properties', '')
+                        site=row.get('site', ''),
+                        asset_type=row.get('asset_type', ''),
+                        vendor=row.get('vendor', ''),
+                        firmware=row.get('firmware', ''),
+                        network_zone=row.get('network_zone', ''),
+                        criticality=row.get('criticality', 'Medium'),
+                        protocol=row.get('protocol', ''),
+                        ip_address=ip_address,
+                        mac_address=row.get('mac_address', ''),
+                        location=row.get('location', ''),
+                        serial_number=row.get('serial_number', ''),
+                        last_seen=row.get('last_seen', datetime.now().strftime("%Y-%m-%d")),
+                        other_properties=row.get('other_properties', ''),
+                        os=row.get('os', ''),
+                        ip_type=ip_type
                     )
                 st.success(f"Imported {len(df_asset)} assets.")
                 st.rerun()
@@ -800,7 +829,7 @@ elif page == "Import Data":
             st.error(f"Error reading advisory file: {e}")
 
 # -----------------------------------------------------------------------------
-# EXPORT DATA (from SQLite)
+# EXPORT DATA (unchanged)
 # -----------------------------------------------------------------------------
 elif page == "Export Data":
     st.title("Export Data")
