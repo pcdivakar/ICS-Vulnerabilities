@@ -11,11 +11,74 @@ import numpy as np
 st.set_page_config(page_title="OT Cybersecurity Dashboard", layout="wide")
 
 # -------------------------------
+# Custom CSS for Deloitte dark theme
+st.markdown(
+    """
+    <style>
+        /* Main background */
+        .stApp {
+            background-color: #0e1117;
+            color: #e5e5e5;
+        }
+        /* Sidebar */
+        .css-1d391kg, .css-163ttbj, .css-1avcm0n {
+            background-color: #1e1e2f;
+        }
+        /* Metric cards */
+        .stMetric {
+            background-color: #2c2c3a;
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        /* Buttons */
+        .stButton button {
+            background-color: #00a1ab;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: 0.2s;
+        }
+        .stButton button:hover {
+            background-color: #00838f;
+        }
+        /* Headers */
+        h1, h2, h3, h4, h5, h6 {
+            color: #ffffff;
+        }
+        /* Expander */
+        .streamlit-expanderHeader {
+            background-color: #2c2c3a;
+            color: #ffffff;
+        }
+        /* Dataframe tables */
+        .dataframe {
+            background-color: #2c2c3a;
+            color: #e5e5e5;
+        }
+        /* Plotly charts */
+        .js-plotly-plot .plotly .main-svg {
+            background-color: #2c2c3a !important;
+        }
+        /* Success and info messages */
+        .stAlert {
+            background-color: #2c2c3a;
+            color: #e5e5e5;
+        }
+        /* Sidebar expander */
+        .css-1aumxhk {
+            background-color: #2c2c3a;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# -------------------------------
 # Helper functions for database
 def init_db():
     conn = sqlite3.connect('ot_cyber.db')
     c = conn.cursor()
-    # Assets table
     c.execute('''CREATE TABLE IF NOT EXISTS assets
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   site TEXT,
@@ -34,7 +97,6 @@ def init_db():
                   os TEXT,
                   ip_type TEXT,
                   created_at TIMESTAMP)''')
-    # Vulnerabilities table
     c.execute('''CREATE TABLE IF NOT EXISTS vulnerabilities
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   asset_id INTEGER,
@@ -50,7 +112,6 @@ def init_db():
                   vulnerability_title TEXT,
                   created_at TIMESTAMP,
                   FOREIGN KEY(asset_id) REFERENCES assets(id))''')
-    # Advisory table (CVE mapping)
     c.execute('''CREATE TABLE IF NOT EXISTS advisory
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   cve_number TEXT UNIQUE,
@@ -156,7 +217,6 @@ def calculate_risk_score(assets, vulns):
     return merged['risk'].sum()
 
 def derive_ip_type(ip):
-    """Return a simple classification: IPv4 or IPv6. Could be extended."""
     if pd.isna(ip) or ip == '':
         return 'Unknown'
     ip = str(ip)
@@ -174,23 +234,39 @@ st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["Dashboard", "Assets Management", "Vulnerabilities Management", "Advisory Data", "Import Data", "Export Data"])
 
 # -----------------------------------------------------------------------------
-# DASHBOARD PAGE (File import + enhanced visuals)
+# DASHBOARD PAGE
 # -----------------------------------------------------------------------------
 if page == "Dashboard":
-    st.title("🔒 OT Cybersecurity Dashboard")
+    # Deloitte header
+    col_logo, col_title = st.columns([1, 3])
+    with col_logo:
+        # Use your own Deloitte logo image URL or local file
+        st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Deloitte.svg/1200px-Deloitte.svg.png", width=80)
+    with col_title:
+        st.markdown(
+            """
+            <div style="background-color: #0e1117; padding: 10px;">
+            <h1 style="color: #ffffff; margin:0;">OT Cybersecurity Risk Assessment Dashboard</h1>
+            <p style="color: #cccccc;">Powered by Deloitte – big 4 style risk analytics</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    st.markdown("---")
+
     st.markdown("Upload your data files to populate the dashboard and management pages.")
 
-    # File uploaders
+    # File uploaders (advisory optional)
     col1, col2, col3 = st.columns(3)
     with col1:
         vuln_file = st.file_uploader("📁 Vulnerability File (CSV/Excel)", type=["csv", "xlsx"], key="dashboard_vuln")
     with col2:
         asset_file = st.file_uploader("🏭 Asset File (CSV/Excel)", type=["csv", "xlsx"], key="dashboard_asset")
     with col3:
-        advisory_file = st.file_uploader("📄 Advisory File (CSV/Excel)", type=["csv", "xlsx"], key="dashboard_advisory")
+        advisory_file = st.file_uploader("📄 Advisory File (CSV/Excel) - Optional", type=["csv", "xlsx"], key="dashboard_advisory")
 
-    # When all files are uploaded, import them into the database
-    if vuln_file and asset_file and advisory_file:
+    # Load files into database (only require asset and vulnerability)
+    if vuln_file and asset_file:
         if st.button("Load Files into Database (replaces existing data)"):
             with st.spinner("Loading and importing data..."):
                 clear_all_data()
@@ -211,7 +287,6 @@ if page == "Dashboard":
                         st.stop()
                 for _, row in asset_df.iterrows():
                     ip_address = row.get('ip_address', '')
-                    # Determine ip_type: if column exists, use it; else derive
                     if 'ip_type' in row and pd.notna(row['ip_type']) and row['ip_type'] != '':
                         ip_type = row['ip_type']
                     else:
@@ -259,36 +334,36 @@ if page == "Dashboard":
                         vulnerability_title=row.get('vulnerability_title', '')
                     )
 
-                # Load advisory
-                adv_df = load_file(advisory_file)
-                adv_df.columns = adv_df.columns.str.strip().str.lower()
-                if 'cve_number' not in adv_df.columns:
-                    st.error("Advisory file missing required column: cve_number")
-                    st.stop()
-                for _, row in adv_df.iterrows():
-                    save_advisory(
-                        cve_number=row['cve_number'],
-                        title=row.get('ics-cert_advisory_title', ''),
-                        cwe=row.get('cwe_number', ''),
-                        sector=row.get('critical_infrastructure_sector', '')
-                    )
+                # Load advisory if provided
+                if advisory_file is not None:
+                    adv_df = load_file(advisory_file)
+                    adv_df.columns = adv_df.columns.str.strip().str.lower()
+                    if 'cve_number' in adv_df.columns:
+                        for _, row in adv_df.iterrows():
+                            save_advisory(
+                                cve_number=row['cve_number'],
+                                title=row.get('ics-cert_advisory_title', ''),
+                                cwe=row.get('cwe_number', ''),
+                                sector=row.get('critical_infrastructure_sector', '')
+                            )
+                    else:
+                        st.warning("Advisory file missing 'cve_number' column – skipping advisory import.")
 
                 st.success("Data imported successfully! The dashboard and management pages now show the uploaded data.")
                 st.rerun()
     else:
-        st.info("Please upload all three files and click 'Load Files' to populate the dashboard.")
+        st.info("Please upload at least the Asset and Vulnerability files and click 'Load Files' to populate the dashboard.")
 
-    # Load data from database for display (if any)
+    # Load data from database
     assets_df = load_assets()
     vuln_df = load_vulnerabilities()
     advisory_df = load_advisory()
 
-    # If database is empty, show a message and stop
     if assets_df.empty or vuln_df.empty:
-        st.warning("No data in the database. Please upload the three files above.")
+        st.warning("No data in the database. Please upload the required files above.")
         st.stop()
 
-    # Merge vulnerabilities with advisory data (CVE mapping)
+    # Enrich vulnerabilities with advisory data (if available)
     if not advisory_df.empty:
         advisory_map = advisory_df.set_index('cve_number').to_dict('index')
         def enrich_vuln(row):
@@ -308,7 +383,7 @@ if page == "Dashboard":
         vuln_df['cwe'] = ''
         vuln_df['infra_sector'] = ''
 
-    # Merge vulnerabilities with assets
+    # Merge with assets
     merged_df = pd.merge(vuln_df, assets_df, left_on='asset_id', right_on='id', how='left')
     for col in ['asset_type', 'criticality', 'network_zone']:
         if col not in merged_df.columns:
@@ -325,30 +400,19 @@ if page == "Dashboard":
     merged_df['risk_score'] = pd.to_numeric(merged_df['risk_score'], errors='coerce').fillna(0)
 
     # -------------------------------------------------------------------------
-    # Branding and metric blocks
+    # Branding info (Data Source, Captured Date, Site Name)
     # -------------------------------------------------------------------------
-    # Header with logo and info (use local logo or URL)
-    col_logo, col_info = st.columns([1, 3])
-    with col_logo:
-        try:
-            st.image("logo.png", width=100)   # Place a logo.png in your repo or use a URL
-        except:
-            st.markdown("**LOGO**")
-    with col_info:
-        st.markdown(
-            """
-            <div style="background-color:black; padding:10px; border-radius:5px; color:white;">
-            <b>Data Source:</b> Asset, Vulnerability & Advisory Files<br>
-            <b>Captured Date:</b> {}<br>
-            <b>Site Name:</b> {}<br>
-            </div>
-            """.format(
-                datetime.now().strftime("%Y-%m-%d %H:%M"),
-                assets_df['site'].iloc[0] if not assets_df.empty else "N/A"
-            ), unsafe_allow_html=True
-        )
+    st.markdown(
+        f"""
+        <div style="background-color:#1e1e2f; padding:10px; border-radius:5px; margin-bottom:20px;">
+        <b>Data Source:</b> Asset & Vulnerability Files (Advisory optional)<br>
+        <b>Captured Date:</b> {datetime.now().strftime("%Y-%m-%d %H:%M")}<br>
+        <b>Site Name:</b> {assets_df['site'].iloc[0] if not assets_df.empty else 'N/A'}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-    st.markdown("---")
     # Metrics (stacked rectangular blocks)
     col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
     with col1:
@@ -384,7 +448,8 @@ if page == "Dashboard":
         if 'os' in assets_df.columns and not assets_df['os'].isna().all():
             os_counts = assets_df['os'].value_counts().reset_index()
             os_counts.columns = ['OS', 'Count']
-            fig_os = px.pie(os_counts, values='Count', names='OS', title="Operating Systems", hole=0.3)
+            fig_os = px.pie(os_counts, values='Count', names='OS', title="Operating Systems", hole=0.3,
+                            color_discrete_sequence=px.colors.sequential.RdBu)
             st.plotly_chart(fig_os, use_container_width=True)
         else:
             st.info("No OS data available")
@@ -394,7 +459,8 @@ if page == "Dashboard":
         if 'ip_address' in assets_df.columns and 'protocol' in assets_df.columns:
             ip_by_protocol = assets_df.groupby('protocol')['ip_address'].nunique().reset_index()
             ip_by_protocol.columns = ['Protocol', 'Unique IPs']
-            fig_prot = px.bar(ip_by_protocol, x='Protocol', y='Unique IPs', title="Unique IPs per Protocol")
+            fig_prot = px.bar(ip_by_protocol, x='Protocol', y='Unique IPs', title="Unique IPs per Protocol",
+                              color='Unique IPs', color_continuous_scale='Viridis')
             st.plotly_chart(fig_prot, use_container_width=True)
         else:
             st.info("No IP or protocol data available")
@@ -403,7 +469,8 @@ if page == "Dashboard":
         st.subheader("Asset Criticality")
         crit_counts = assets_df['criticality'].value_counts().reset_index()
         crit_counts.columns = ['Criticality', 'Count']
-        fig_crit = px.pie(crit_counts, values='Count', names='Criticality', title="Asset Criticality", hole=0.3)
+        fig_crit = px.pie(crit_counts, values='Count', names='Criticality', title="Asset Criticality", hole=0.3,
+                          color_discrete_sequence=px.colors.sequential.RdBu)
         st.plotly_chart(fig_crit, use_container_width=True)
 
     # -------------------------------------------------------------------------
@@ -415,7 +482,7 @@ if page == "Dashboard":
         if 'vendor' in assets_df.columns and 'ip_address' in assets_df.columns:
             vendor_ip_count = assets_df.groupby('vendor')['ip_address'].nunique().reset_index()
             vendor_ip_count.columns = ['Vendor', 'Unique IPs']
-            fig_vendor = px.bar(vendor_ip_count, x='Vendor', y='Unique IPs', 
+            fig_vendor = px.bar(vendor_ip_count, x='Vendor', y='Unique IPs',
                                 title="Unique IPs per Vendor", color='Unique IPs',
                                 color_continuous_scale='Viridis')
             fig_vendor.update_xaxes(tickangle=45)
@@ -428,8 +495,9 @@ if page == "Dashboard":
         if 'ip_type' in assets_df.columns and not assets_df['ip_type'].isna().all():
             ip_type_counts = assets_df['ip_type'].value_counts().reset_index()
             ip_type_counts.columns = ['IP Type', 'Count']
-            fig_ip_type = px.bar(ip_type_counts, x='IP Type', y='Count', orientation='h', 
-                                 title="IP Type Distribution")
+            fig_ip_type = px.bar(ip_type_counts, x='IP Type', y='Count', orientation='h',
+                                 title="IP Type Distribution", color='Count',
+                                 color_continuous_scale='Viridis')
             st.plotly_chart(fig_ip_type, use_container_width=True)
         else:
             st.info("No IP type data available")
@@ -459,7 +527,8 @@ if page == "Dashboard":
     if 'vendor' in merged_df.columns:
         cve_by_vendor = merged_df.groupby('vendor')['cve_id'].nunique().reset_index()
         cve_by_vendor.columns = ['Vendor', 'CVE Count']
-        fig_vendor_cve = px.bar(cve_by_vendor, x='Vendor', y='CVE Count', title="CVEs per Vendor", color='CVE Count')
+        fig_vendor_cve = px.bar(cve_by_vendor, x='Vendor', y='CVE Count', title="CVEs per Vendor", color='CVE Count',
+                                color_continuous_scale='Viridis')
         fig_vendor_cve.update_xaxes(tickangle=45)
         st.plotly_chart(fig_vendor_cve, use_container_width=True)
     else:
@@ -478,7 +547,8 @@ if page == "Dashboard":
     vuln_df['cve_criticality'] = vuln_df['cvss_score'].apply(cvss_to_criticality)
     crit_counts_cve = vuln_df['cve_criticality'].value_counts().reset_index()
     crit_counts_cve.columns = ['Criticality', 'Count']
-    fig_cve_crit = px.pie(crit_counts_cve, values='Count', names='Criticality', title="CVE Criticality (CVSS based)", hole=0.3)
+    fig_cve_crit = px.pie(crit_counts_cve, values='Count', names='Criticality', title="CVE Criticality (CVSS based)", hole=0.3,
+                          color_discrete_sequence=px.colors.sequential.RdBu)
     st.plotly_chart(fig_cve_crit, use_container_width=True)
 
     st.subheader("Risk Heatmap (Asset Criticality vs CVE Criticality)")
@@ -495,7 +565,8 @@ if page == "Dashboard":
     if 'ip_address' in merged_df.columns and 'severity' in merged_df.columns:
         ip_severity = merged_df.groupby(['ip_address', 'severity']).size().reset_index(name='count')
         fig_ip_sev = px.bar(ip_severity, x='ip_address', y='count', color='severity',
-                            title="CVE Count per IP by Severity", barmode='group')
+                            title="CVE Count per IP by Severity", barmode='group',
+                            color_discrete_sequence=px.colors.qualitative.Set2)
         fig_ip_sev.update_xaxes(tickangle=45)
         st.plotly_chart(fig_ip_sev, use_container_width=True)
     else:
@@ -506,12 +577,12 @@ if page == "Dashboard":
         cve_by_ip = merged_df.groupby('ip_address')['cve_id'].nunique().reset_index().sort_values('cve_id', ascending=True)
         cve_by_ip.columns = ['IP Address', 'CVE Count']
         fig_ip_cve = px.bar(cve_by_ip, x='CVE Count', y='IP Address', orientation='h',
-                            title="CVE Count per IP", color='CVE Count')
+                            title="CVE Count per IP", color='CVE Count', color_continuous_scale='Viridis')
         st.plotly_chart(fig_ip_cve, use_container_width=True)
     else:
         st.info("No IP data available")
 
-    # Download button (optional)
+    # Download button
     st.sidebar.markdown("---")
     csv = merged_df.to_csv(index=False).encode('utf-8')
     st.sidebar.download_button("📥 Download Data as CSV", data=csv,
@@ -519,7 +590,7 @@ if page == "Dashboard":
     st.sidebar.success("Dashboard ready.")
 
 # -----------------------------------------------------------------------------
-# ASSETS MANAGEMENT (updated with OS and IP Type fields)
+# ASSETS MANAGEMENT (unchanged except for minor styling)
 # -----------------------------------------------------------------------------
 elif page == "Assets Management":
     st.title("Manage OT Assets")
@@ -547,7 +618,6 @@ elif page == "Assets Management":
             submitted = st.form_submit_button("Add Asset")
             if submitted:
                 if site and asset_type and vendor and protocol:
-                    # If ip_type not provided, derive
                     final_ip_type = ip_type if ip_type else derive_ip_type(ip_address)
                     asset_id = save_asset(site, asset_type, vendor, firmware, network_zone, criticality,
                                           protocol, ip_address, mac_address, location, serial_number,
@@ -665,7 +735,7 @@ elif page == "Advisory Data":
             st.error(f"Error reading file: {e}")
 
 # -----------------------------------------------------------------------------
-# IMPORT DATA (updated to include os and ip_type)
+# IMPORT DATA (updated to include os and ip_type, and advisory optional)
 # -----------------------------------------------------------------------------
 elif page == "Import Data":
     st.title("Import Data from Files")
